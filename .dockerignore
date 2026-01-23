@@ -1,0 +1,23 @@
+# Dependencies
+node_modules
+.pnpm-store
+
+# Build output
+.next
+out
+build
+dist
+
+# Logs
+*-debug.log*
+*-error.log*
+pnpm-debug.log*
+
+# OS/IDE
+.DS_Store
+.idea
+.vscode
+*.tsbuildinfo
+
+# Git
+.git
