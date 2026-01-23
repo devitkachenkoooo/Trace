@@ -1,113 +1,74 @@
 'use client';
 
-import { AnimatePresence, motion } from 'framer-motion';
-import { CheckCircle2, Circle, Plus, Trash2 } from 'lucide-react';
+import Image from 'next/image';
+import Link from 'next/link';
 import { useEffect, useState } from 'react';
-import { useTodoStore } from '@/store/useTodoStore';
+import { useChatStore } from '@/store/useChatStore';
 
-export default function TodoPage() {
-  const { todos, addTodo, toggleTodo, deleteTodo } = useTodoStore();
-  const [inputValue, setInputValue] = useState('');
+export default function Home() {
+  const { chats } = useChatStore();
+  const [isMounted, setIsMounted] = useState(false);
 
   useEffect(() => {
-    useTodoStore.persist.rehydrate();
+    setIsMounted(true);
   }, []);
 
-  const handleAddTodo = () => {
-    if (inputValue.trim()) {
-      addTodo(inputValue);
-      setInputValue('');
-    }
-  };
+  if (chats.length === 0) {
+    return (
+      <div className="flex flex-col items-center justify-center min-h-[calc(100vh-80px)] text-center px-4">
+        <h2 className="text-3xl font-bold text-gray-200 mb-2">Welcome to Trace</h2>
+        <p className="text-gray-400">Start a new conversation</p>
+      </div>
+    );
+  }
 
   return (
-    <main className="flex min-h-screen items-center justify-center bg-[#09090b] p-4 text-zinc-100">
-      <motion.div
-        initial={{ opacity: 0, scale: 0.9 }}
-        animate={{ opacity: 1, scale: 1 }}
-        className="w-full max-w-md overflow-hidden rounded-3xl border border-zinc-800 bg-zinc-900/50 backdrop-blur-xl shadow-2xl"
-      >
-        <div className="p-8">
-          <h1 className="text-3xl font-black tracking-tighter text-white mb-6 bg-gradient-to-r from-blue-500 to-emerald-400 bg-clip-text text-transparent">
-            TRACE TASKS
-          </h1>
+    <div className="max-w-3xl mx-auto py-10 px-4">
+      <h1 className="text-3xl font-bold mb-6 text-white">Chats</h1>
+      <div className="space-y-3">
+        {chats.map((chat) => {
+          const otherParticipant = chat.participants[0];
+          const lastMessage = chat.messages[chat.messages.length - 1];
 
-          {/* Поле вводу */}
-          <div className="flex gap-2 mb-8">
-            <input
-              type="text"
-              value={inputValue}
-              onChange={(e) => setInputValue(e.target.value)}
-              onKeyDown={(e) => e.key === 'Enter' && handleAddTodo()}
-              placeholder="Що плануєш зробити?"
-              className="flex-1 bg-zinc-950 border border-zinc-800 rounded-2xl px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-blue-600 transition-all placeholder:text-zinc-600"
-            />
-            <motion.button
-              whileHover={{ scale: 1.05 }}
-              whileTap={{ scale: 0.95 }}
-              onClick={handleAddTodo}
-              className="bg-blue-600 p-3 rounded-2xl hover:bg-blue-500 transition-colors"
+          return (
+            <Link
+              key={chat.id}
+              href={`/chat/${chat.id}`}
+              className="flex items-center gap-4 p-4 rounded-2xl bg-white/5 hover:bg-white/10 transition-all border border-white/5 hover:border-white/10 group"
             >
-              <Plus size={24} />
-            </motion.button>
-          </div>
-
-          {/* Список задач */}
-          <div className="space-y-3">
-            <AnimatePresence mode="popLayout">
-              {todos.map((todo) => (
-                <motion.div
-                  key={todo.id}
-                  layout
-                  initial={{ opacity: 0, x: -20 }}
-                  animate={{ opacity: 1, x: 0 }}
-                  exit={{ opacity: 0, x: 20, scale: 0.9 }}
-                  transition={{ duration: 0.2 }}
-                  className={`group flex items-center justify-between p-4 rounded-2xl border transition-all ${
-                    todo.completed
-                      ? 'bg-zinc-950/50 border-zinc-900 opacity-60'
-                      : 'bg-zinc-900 border-zinc-800 hover:border-zinc-700'
-                  }`}
-                >
-                  <button
-                    type="button"
-                    className="flex items-center gap-3 flex-1 text-left w-full focus:outline-none"
-                    onClick={() => toggleTodo(todo.id)}
-                  >
-                    {todo.completed ? (
-                      <CheckCircle2 className="text-emerald-500" size={20} />
-                    ) : (
-                      <Circle
-                        className="text-zinc-600 group-hover:text-blue-500 transition-colors"
-                        size={20}
-                      />
-                    )}
-                    <span
-                      className={`text-sm font-medium ${todo.completed ? 'line-through text-zinc-500' : 'text-zinc-200'}`}
-                    >
-                      {todo.text}
+              <div className="relative w-12 h-12 rounded-full overflow-hidden border border-white/10 group-hover:border-white/20 transition-colors">
+                <Image
+                  src={otherParticipant.avatar}
+                  alt={otherParticipant.name}
+                  fill
+                  className="object-cover"
+                  sizes="48px"
+                />
+              </div>
+              <div className="flex-1 min-w-0">
+                <div className="flex items-center justify-between mb-1">
+                  <h3 className="font-semibold text-gray-200 group-hover:text-white transition-colors truncate">
+                    {otherParticipant.name}
+                  </h3>
+                  {lastMessage && isMounted && (
+                    <span className="text-xs text-gray-500 group-hover:text-gray-400 transition-colors whitespace-nowrap ml-2">
+                      {new Date(lastMessage.timestamp).toLocaleTimeString('en-US', {
+                        hour: '2-digit',
+                        minute: '2-digit',
+                      })}
                     </span>
-                  </button>
-
-                  <motion.button
-                    whileHover={{ color: '#ef4444' }}
-                    onClick={() => deleteTodo(todo.id)}
-                    className="text-zinc-600 p-1"
-                  >
-                    <Trash2 size={18} />
-                  </motion.button>
-                </motion.div>
-              ))}
-            </AnimatePresence>
-          </div>
-        </div>
-
-        <div className="bg-zinc-950/50 p-4 border-t border-zinc-800 text-center">
-          <p className="text-[10px] text-zinc-600 uppercase tracking-[0.2em] font-bold">
-            Project Trace • React 19 • Framer Motion
-          </p>
-        </div>
-      </motion.div>
-    </main>
+                  )}
+                </div>
+                {lastMessage && (
+                  <p className="text-sm text-gray-400 group-hover:text-gray-300 transition-colors truncate">
+                    {lastMessage.content}
+                  </p>
+                )}
+              </div>
+            </Link>
+          );
+        })}
+      </div>
+    </div>
   );
 }
