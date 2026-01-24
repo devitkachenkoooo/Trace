@@ -6,14 +6,15 @@ import { useEffect } from 'react';
 import ChatList from './ChatList';
 import ContactsList from './ContactsList';
 import SearchInput from './SearchInput';
+import { useUpdateLastSeen } from '@/hooks/useChatHooks';
+import { useSession } from 'next-auth/react';
 
-interface SidebarShellProps {
-  initialChats: any[];
-}
-
-export default function SidebarShell({ initialChats }: SidebarShellProps) {
+export default function SidebarShell() {
+  const { data: session } = useSession();
   const router = useRouter();
   const searchParams = useSearchParams();
+
+  useUpdateLastSeen(session?.user?.id);
 
   const tab = searchParams.get('tab') || 'chats';
   const query = searchParams.get('q') || '';
@@ -96,7 +97,7 @@ export default function SidebarShell({ initialChats }: SidebarShellProps) {
                 Ваші діалоги
               </h2>
             </div>
-            <ChatList initialChats={initialChats} />
+            <ChatList />
           </>
         ) : (
           <ContactsList query={query} />

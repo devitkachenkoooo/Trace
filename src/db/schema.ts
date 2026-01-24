@@ -1,4 +1,4 @@
-import { integer, pgTable, primaryKey, text, timestamp } from 'drizzle-orm/pg-core';
+import { boolean, integer, pgTable, primaryKey, text, timestamp } from 'drizzle-orm/pg-core';
 import type { AdapterAccountType } from 'next-auth/adapters';
 
 // --- ТАБЛИЦІ АВТОРИЗАЦІЇ ---
@@ -11,6 +11,7 @@ export const users = pgTable('user', {
   email: text('email').notNull().unique(),
   emailVerified: timestamp('emailVerified', { mode: 'date' }),
   image: text('image'),
+  lastSeen: timestamp('last_seen', { mode: 'date' }).defaultNow(),
 });
 
 export const accounts = pgTable(
@@ -82,5 +83,6 @@ export const messages = pgTable('messages', {
     .notNull()
     .references(() => users.id, { onDelete: 'cascade' }),
   content: text('content').notNull(),
+  isRead: boolean('is_read').notNull().default(false),
   createdAt: timestamp('created_at').notNull().defaultNow(),
 });

@@ -1,9 +1,9 @@
 'use client';
 
-import Image from 'next/image';
-import Logo from '../ui/Logo';
-import { useState } from 'react';
 import { SignInButton, SignOutButton } from '../auth/auth-buttons';
+import Logo from '../ui/Logo';
+import Image from 'next/image';
+import { useState } from 'react';
 
 interface NavbarProps {
   user?: {

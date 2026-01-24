@@ -5,6 +5,7 @@ import { auth } from '@/auth';
 import Navbar from '@/components/layout/Navbar';
 import Sidebar from '@/components/sidebar/Sidebar';
 import AuthProvider from '@/components/auth/AuthProvider';
+import Providers from '@/components/Providers';
 import './globals.css';
 
 const geistSans = Geist({
@@ -35,15 +36,17 @@ export default async function RootLayout({
       <body
         className={`${geistSans.variable} ${geistMono.variable} antialiased bg-black text-white`}
       >
-        <AuthProvider>
-          {/* Передаємо юзера в Навбар через пропси */}
-          <Navbar user={session?.user} />
+        <Providers>
+          <AuthProvider>
+            {/* Передаємо юзера в Навбар через пропси */}
+            <Navbar user={session?.user} />
 
-          <div className="flex pt-16 min-h-screen">
-            {session && <Sidebar />}
-            <main className="flex-1">{children}</main>
-          </div>
-        </AuthProvider>
+            <div className="flex pt-16 min-h-screen">
+              {session && <Sidebar />}
+              <main className="flex-1">{children}</main>
+            </div>
+          </AuthProvider>
+        </Providers>
       </body>
     </html>
   );
