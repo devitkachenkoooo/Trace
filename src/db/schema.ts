@@ -34,7 +34,7 @@ export const accounts = pgTable(
   },
   (account) => ({
     compoundKey: primaryKey({ columns: [account.provider, account.providerAccountId] }),
-  })
+  }),
 );
 
 export const sessions = pgTable('session', {
@@ -54,7 +54,7 @@ export const verificationTokens = pgTable(
   },
   (vt) => ({
     compoundKey: primaryKey({ columns: [vt.identifier, vt.token] }),
-  })
+  }),
 );
 
 // --- ТВОЯ ЛОГІКА ЧАТІВ ---
@@ -63,6 +63,11 @@ export const chats = pgTable('chats', {
   id: text('id')
     .primaryKey()
     .$defaultFn(() => crypto.randomUUID()),
+  userId: text('user_id')
+    .notNull()
+    .references(() => users.id, { onDelete: 'cascade' }),
+  recipientId: text('recipient_id').references(() => users.id, { onDelete: 'cascade' }),
+  title: text('title').notNull().default('New Chat'),
   createdAt: timestamp('created_at').notNull().defaultNow(),
 });
 

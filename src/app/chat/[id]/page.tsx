@@ -2,9 +2,11 @@
 
 import Image from 'next/image';
 import { useEffect, useState } from 'react';
+import { useSession } from 'next-auth/react';
 import { useChatStore } from '@/store/useChatStore';
 
 export default function ChatPage({ params }: { params: Promise<{ id: string }> }) {
+  const { data: session } = useSession();
   // In Next.js 15+, params is a Promise
   const [resolvedParams, setResolvedParams] = useState<{ id: string } | null>(null);
 
@@ -47,7 +49,7 @@ export default function ChatPage({ params }: { params: Promise<{ id: string }> }
       {/* Messages */}
       <div className="flex-1 overflow-y-auto p-6 space-y-4">
         {chat.messages.map((message) => {
-          const isMe = message.senderId === 'u1'; // Mock current user ID
+          const isMe = message.senderId === session?.user?.id;
           return (
             <div key={message.id} className={`flex ${isMe ? 'justify-end' : 'justify-start'}`}>
               <div
@@ -79,3 +81,5 @@ export default function ChatPage({ params }: { params: Promise<{ id: string }> }
     </div>
   );
 }
+
+ChatPage.whyDidYouRender = true;

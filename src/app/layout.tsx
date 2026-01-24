@@ -1,8 +1,10 @@
+import '@/wdyr';
 import type { Metadata } from 'next';
 import { Geist, Geist_Mono } from 'next/font/google';
-import { auth } from "@/auth";
+import { auth } from '@/auth';
 import Navbar from '@/components/layout/Navbar';
-import Sidebar from '@/components/layout/Sidebar';
+import Sidebar from '@/components/sidebar/Sidebar';
+import AuthProvider from '@/components/auth/AuthProvider';
 import './globals.css';
 
 const geistSans = Geist({
@@ -33,15 +35,15 @@ export default async function RootLayout({
       <body
         className={`${geistSans.variable} ${geistMono.variable} antialiased bg-black text-white`}
       >
-        {/* Передаємо юзера в Навбар через пропси */}
-        <Navbar user={session?.user} />
-        
-        <div className="flex">
-          <Sidebar />
-          <main className="flex-1 pt-16 sm:pl-20 md:pl-64 min-h-screen">
-            {children}
-          </main>
-        </div>
+        <AuthProvider>
+          {/* Передаємо юзера в Навбар через пропси */}
+          <Navbar user={session?.user} />
+
+          <div className="flex pt-16 min-h-screen">
+            {session && <Sidebar />}
+            <main className="flex-1">{children}</main>
+          </div>
+        </AuthProvider>
       </body>
     </html>
   );
