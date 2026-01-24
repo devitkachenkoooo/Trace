@@ -1,8 +1,9 @@
 import type { Metadata } from 'next';
 import { Geist, Geist_Mono } from 'next/font/google';
-import './globals.css';
+import { auth } from "@/auth";
 import Navbar from '@/components/layout/Navbar';
 import Sidebar from '@/components/layout/Sidebar';
+import './globals.css';
 
 const geistSans = Geist({
   variable: '--font-geist-sans',
@@ -19,20 +20,27 @@ export const metadata: Metadata = {
   description: 'A modern messaging app',
 };
 
-export default function RootLayout({
+export default async function RootLayout({
   children,
 }: Readonly<{
   children: React.ReactNode;
 }>) {
+  // Отримуємо сесію на рівні сервера
+  const session = await auth();
+
   return (
     <html lang="en">
       <body
         className={`${geistSans.variable} ${geistMono.variable} antialiased bg-black text-white`}
       >
-        <Navbar />
+        {/* Передаємо юзера в Навбар через пропси */}
+        <Navbar user={session?.user} />
+        
         <div className="flex">
           <Sidebar />
-          <main className="flex-1 pt-16 sm:pl-20 md:pl-64 min-h-screen">{children}</main>
+          <main className="flex-1 pt-16 sm:pl-20 md:pl-64 min-h-screen">
+            {children}
+          </main>
         </div>
       </body>
     </html>

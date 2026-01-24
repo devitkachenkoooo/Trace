@@ -34,14 +34,14 @@ export default function ChatPage({ params }: { params: Promise<{ id: string }> }
       <div className="px-6 py-4 border-b border-white/10 flex items-center gap-4">
         <div className="relative w-10 h-10 rounded-full overflow-hidden border border-white/10">
           <Image
-            src={otherParticipant.avatar}
-            alt={otherParticipant.name}
+            src={otherParticipant.image || '/default-avatar.png'}
+            alt={otherParticipant.name || 'User'}
             fill
             className="object-cover"
             sizes="40px"
           />
         </div>
-        <h2 className="text-xl font-bold text-white">{otherParticipant.name}</h2>
+        <h2 className="text-xl font-bold text-white">{otherParticipant.name || 'Unknown User'}</h2>
       </div>
 
       {/* Messages */}

@@ -2,8 +2,8 @@ import { create } from 'zustand';
 
 export interface User {
   id: string;
-  name: string;
-  avatar: string;
+  name: string | null;
+  image: string | null;
   email: string;
 }
 
@@ -32,7 +32,7 @@ const mockChats: Chat[] = [
       {
         id: 'u2',
         name: 'Alice Johnson',
-        avatar: 'https://i.pravatar.cc/150?u=u2',
+        image: 'https://i.pravatar.cc/150?u=u2',
         email: 'alice@example.com',
       },
     ],
@@ -57,7 +57,7 @@ const mockChats: Chat[] = [
       {
         id: 'u3',
         name: 'Bob Smith',
-        avatar: 'https://i.pravatar.cc/150?u=u3',
+        image: 'https://i.pravatar.cc/150?u=u3',
         email: 'bob@example.com',
       },
     ],

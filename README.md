@@ -61,3 +61,30 @@ NEXT_PUBLIC_SUPABASE_URL=your_project_url
 NEXT_PUBLIC_SUPABASE_ANON_KEY=your_anon_key
 
 
+## 🔐 Налаштування авторизації (Google OAuth)
+
+Для роботи входу через Google необхідно налаштувати проект у [Google Cloud Console](https://console.cloud.google.com/).
+
+### 1. Google Cloud Platform
+- Створіть новий проект з назвою **Trace**.
+- Перейдіть у **APIs & Services > OAuth consent screen**:
+  - Тип: **External**.
+  - Додайте свою пошту в **Test Users** (обов'язково для режиму розробки).
+- Перейдіть у **Credentials**:
+  - Натисніть **Create Credentials > OAuth client ID**.
+  - Тип додатку: **Web application**.
+  - Authorized redirect URIs: `http://localhost:3000/api/auth/callback/google`
+
+### 2. Змінні оточення (.env.local)
+Створіть файл `.env.local` у корені проекту та додайте наступні ключі:
+
+```env
+# Google OAuth Keys
+AUTH_GOOGLE_ID=ваш_client_id_з_google_console
+AUTH_GOOGLE_SECRET=ваш_client_secret_з_google_console
+
+# Auth.js Config
+# Згенеруйте секрет командою: npx auth secret
+AUTH_SECRET=ваш_згенерований_секрет
+NEXTAUTH_URL=http://localhost:3000
+```
