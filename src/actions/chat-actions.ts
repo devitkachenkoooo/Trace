@@ -5,18 +5,42 @@ import { revalidatePath } from 'next/cache';
 import { redirect } from 'next/navigation';
 import { auth } from '@/auth';
 import { db } from '@/db';
-import { chats, users } from '@/db/schema';
+import { chats, messages, users } from '@/db/schema';
 
-export async function getChatsAction(userId: string) {
+export async function getFullChatAction(chatId: string) {
+  const session = await auth();
+  if (!session?.user?.id) return { success: false, error: 'Unauthorized' };
+
   try {
-    const results = await db.query.chats.findMany({
-      where: eq(chats.userId, userId),
-      orderBy: [desc(chats.createdAt)],
+    const chat = await db.query.chats.findFirst({
+      where: eq(chats.id, chatId),
     });
-    return { success: true, data: results };
+
+    if (!chat) return { success: false, error: 'Chat not found' };
+
+    const chatMessages = await db.query.messages.findMany({
+      where: eq(messages.chatId, chatId),
+      orderBy: [desc(messages.createdAt)],
+    });
+
+    const otherUserId = chat.userId === session.user.id ? chat.recipientId : chat.userId;
+    if (!otherUserId) return { success: true, data: { ...chat, messages: chatMessages, participants: [] } };
+
+    const otherUser = await db.query.users.findFirst({
+      where: eq(users.id, otherUserId),
+    });
+
+    return {
+      success: true,
+      data: {
+        ...chat,
+        messages: chatMessages,
+        participants: otherUser ? [otherUser] : [],
+      },
+    };
   } catch (error) {
-    console.error('Error fetching chats:', error);
-    return { success: false, error: 'Failed to fetch chats' };
+    console.error('Error fetching full chat:', error);
+    return { success: false, error: 'Failed to fetch chat details' };
   }
 }
 
@@ -24,12 +48,35 @@ export async function searchUsersAction(query: string) {
   const session = await auth();
   if (!session?.user?.id) return { success: false, error: 'Unauthorized' };
 
+  const myId = session.user.id;
+
   try {
+    if (!query) {
+      // Find all chats where I am a participant
+      const myChats = await db.query.chats.findMany({
+        where: or(eq(chats.userId, myId), eq(chats.recipientId, myId)),
+        with: {
+          // This assumes you have relations defined in drizzle
+          // If not, we'll need to fetch the user IDs and then the users
+        },
+      });
+
+      // Get unique IDs of people I've chatted with
+      const participantIds = myChats.map((c) => (c.userId === myId ? c.recipientId : c.userId)).filter(Boolean) as string[];
+
+      if (participantIds.length === 0) {
+        return { success: true, data: [] };
+      }
+
+      const results = await db.query.users.findMany({
+        where: and(ne(users.id, myId), or(...participantIds.map((id) => eq(users.id, id)))),
+      });
+
+      return { success: true, data: results };
+    }
+
     const results = await db.query.users.findMany({
-      where: and(
-        ne(users.id, session.user.id),
-        query ? or(ilike(users.name, `%${query}%`), ilike(users.email, `%${query}%`)) : undefined,
-      ),
+      where: and(ne(users.id, myId), or(ilike(users.name, `%${query}%`), ilike(users.email, `%${query}%`))),
       limit: 10,
     });
     return { success: true, data: results };

@@ -42,11 +42,14 @@ export default function ChatList({ initialChats }: ChatListProps) {
             <p className="text-sm font-medium text-gray-200 truncate group-hover:text-white transition-colors">
               {chat.title}
             </p>
-            <p className="text-[10px] text-gray-500 truncate uppercase tracking-wider font-semibold">
-              {new Date(chat.createdAt).toLocaleDateString(undefined, {
+            <p 
+              className="text-[10px] text-gray-500 truncate uppercase tracking-wider font-semibold"
+              suppressHydrationWarning
+            >
+              {new Intl.DateTimeFormat('uk-UA', {
                 month: 'short',
                 day: 'numeric',
-              })}
+              }).format(new Date(chat.createdAt))}
             </p>
           </div>
         </Link>

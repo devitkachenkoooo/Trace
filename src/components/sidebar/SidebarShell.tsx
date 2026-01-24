@@ -5,12 +5,10 @@ import { useRouter, useSearchParams } from 'next/navigation';
 import { useEffect } from 'react';
 import ChatList from './ChatList';
 import ContactsList from './ContactsList';
-import NewChatButton from './NewChatButton';
 import SearchInput from './SearchInput';
-import type { Chat } from './Sidebar';
 
 interface SidebarShellProps {
-  initialChats: Chat[];
+  initialChats: any[];
 }
 
 export default function SidebarShell({ initialChats }: SidebarShellProps) {
@@ -82,21 +80,11 @@ export default function SidebarShell({ initialChats }: SidebarShellProps) {
 
         {/* Contacts Specific UI */}
         {tab === 'contacts' && (
-          <>
-            <div className="px-4 mb-4">
-              <button
-                type="button"
-                className="w-full flex items-center justify-center gap-2 bg-white/5 hover:bg-white/10 text-white transition-colors py-3 rounded-xl font-bold text-sm border border-white/10"
-              >
-                Додати контакт
-              </button>
-            </div>
-            <SearchInput />
-          </>
+          <SearchInput />
         )}
 
         {/* Chats Specific UI */}
-        {tab === 'chats' && <NewChatButton />}
+        {tab === 'chats' && <div className="h-4" />}
       </div>
 
       {/* Lists */}

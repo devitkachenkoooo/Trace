@@ -47,7 +47,7 @@ export default function ContactsList({ query }: ContactsListProps) {
           <UserIcon className="w-6 h-6 text-gray-600" />
         </div>
         <p className="text-sm text-gray-500">
-          {query ? 'Нічого не знайдено' : 'Почніть пошук за імʼям або email'}
+          {query ? 'Нічого не знайдено' : 'У вас ще немає активних діалогів'}
         </p>
       </div>
     );
@@ -57,7 +57,7 @@ export default function ContactsList({ query }: ContactsListProps) {
     <div className="flex-1 overflow-y-auto px-2 space-y-1">
       <div className="px-4 mb-2">
         <h2 className="text-[10px] font-bold uppercase tracking-widest text-gray-400">
-          Результати пошуку
+          {query ? 'Результати пошуку' : 'Ваші контакти'}
         </h2>
       </div>
       {users.map((user) => (
