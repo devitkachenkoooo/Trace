@@ -9,43 +9,52 @@ import { chats, messages, users } from '@/db/schema';
 
 import type { FullChat, Message, User } from '@/types';
 
-export async function getFullChatAction(
-  chatId: string,
-): Promise<{ success: true; data: FullChat } | { success: false; error: string }> {
+// Оптимізований getFullChatAction
+export async function getFullChatAction(chatId: string) {
   const session = await auth();
   if (!session?.user?.id) return { success: false, error: 'Unauthorized' };
 
   try {
     const chat = await db.query.chats.findFirst({
       where: eq(chats.id, chatId),
+      with: {
+        recipient: true,
+        user: true,
+        messages: {
+          orderBy: [desc(messages.createdAt)],
+          with: {
+            replyTo: {
+              with: { sender: true }
+            }
+          }
+        },
+      },
     });
 
     if (!chat) return { success: false, error: 'Chat not found' };
 
-    const chatMessages = await db.query.messages.findMany({
-      where: eq(messages.chatId, chatId),
-      orderBy: [desc(messages.createdAt)],
-    });
-
-    const otherUserId = chat.userId === session.user.id ? chat.recipientId : chat.userId;
-    if (!otherUserId)
-      return { success: true, data: { ...chat, messages: chatMessages, participants: [] } };
-
-    const otherUser = await db.query.users.findFirst({
-      where: eq(users.id, otherUserId),
-    });
+    const otherUser = chat.userId === session.user.id ? chat.recipient : chat.user;
+    
+    // Форматуємо replyDetails прямо тут
+    const messagesWithReplies = chat.messages.map(msg => ({
+      ...msg,
+      replyDetails: msg.replyTo ? {
+        id: msg.replyTo.id,
+        content: msg.replyTo.content,
+        sender: { name: msg.replyTo.sender?.name || 'Unknown' }
+      } : null
+    }));
 
     return {
       success: true,
       data: {
         ...chat,
-        messages: chatMessages,
+        messages: messagesWithReplies as unknown as Message[],
         participants: otherUser ? [otherUser] : [],
       },
     };
   } catch (error) {
-    console.error('Error fetching full chat:', error);
-    return { success: false, error: 'Failed to fetch chat details' };
+    return { success: false, error: 'Failed' };
   }
 }
 
@@ -62,10 +71,6 @@ export async function searchUsersAction(
       // Find all chats where I am a participant
       const myChats = await db.query.chats.findMany({
         where: or(eq(chats.userId, myId), eq(chats.recipientId, myId)),
-        with: {
-          // This assumes you have relations defined in drizzle
-          // If not, we'll need to fetch the user IDs and then the users
-        },
       });
 
       // Get unique IDs of people I've chatted with
@@ -138,6 +143,7 @@ export async function getOrCreateChatAction(targetUserId: string) {
 export async function sendMessageAction(
   chatId: string,
   content: string,
+  replyToId?: string,
 ): Promise<{ success: true; data: Message } | { success: false; error: string }> {
   const session = await auth();
   if (!session?.user?.id) return { success: false, error: 'Unauthorized' };
@@ -149,13 +155,81 @@ export async function sendMessageAction(
         chatId,
         senderId: session.user.id,
         content: content.trim(),
+        replyToId: replyToId || null,
       })
       .returning();
 
-    return { success: true, data: newMessage as unknown as Message };
+    // Fetch reply details if exists to return full object immediately (optimistic update support)
+    let replyDetails = null;
+    if (replyToId) {
+      const replyMsg = await db.query.messages.findFirst({
+        where: eq(messages.id, replyToId),
+      });
+      if (replyMsg) {
+        const sender = await db.query.users.findFirst({
+          where: eq(users.id, replyMsg.senderId),
+        });
+        replyDetails = {
+          id: replyMsg.id,
+          sender: { name: sender?.name },
+          content: replyMsg.content,
+        };
+      }
+    }
+
+    return { success: true, data: { ...newMessage, replyDetails } as unknown as Message };
   } catch (error) {
     console.error('Error sending message:', error);
     return { success: false, error: 'Failed to send message' };
+  }
+}
+
+export async function deleteMessageAction(
+  messageId: string,
+): Promise<{ success: true } | { success: false; error: string }> {
+  const session = await auth();
+  if (!session?.user?.id) return { success: false, error: 'Unauthorized' };
+
+  try {
+    const message = await db.query.messages.findFirst({
+      where: eq(messages.id, messageId),
+    });
+
+    if (!message) return { success: false, error: 'Message not found' };
+    if (message.senderId !== session.user.id) return { success: false, error: 'Forbidden' };
+
+    await db.delete(messages).where(eq(messages.id, messageId));
+    return { success: true };
+  } catch (error) {
+    console.error('Error deleting message:', error);
+    return { success: false, error: 'Failed to delete message' };
+  }
+}
+
+export async function deleteChatAction(
+  chatId: string,
+): Promise<{ success: true } | { success: false; error: string }> {
+  const session = await auth();
+  if (!session?.user?.id) return { success: false, error: 'Unauthorized' };
+
+  try {
+    // Verify participation
+    const chat = await db.query.chats.findFirst({
+      where: eq(chats.id, chatId),
+    });
+
+    if (!chat) return { success: false, error: 'Chat not found' };
+    if (chat.userId !== session.user.id && chat.recipientId !== session.user.id) {
+      return { success: false, error: 'Forbidden' };
+    }
+
+    await db.delete(chats).where(eq(chats.id, chatId));
+
+    revalidatePath('/');
+    return { success: true };
+  } catch (error) {
+    console.error('Error deleting chat:', error);
+    return { success: false, error: 'Failed to delete chat' };
   }
 }
 
@@ -184,46 +258,37 @@ export async function markAsReadAction(
   }
 }
 
-export async function getChatsAction(): Promise<
-  { success: true; data: FullChat[] } | { success: false; error: string }
-> {
+// Оптимізований getChatsAction
+export async function getChatsAction(): Promise<{ success: true; data: FullChat[] } | { success: false; error: string }> {
   const session = await auth();
   if (!session?.user?.id) return { success: false, error: 'Unauthorized' };
 
-  const myId = session.user.id;
-
   try {
     const myChats = await db.query.chats.findMany({
-      where: or(eq(chats.userId, myId), eq(chats.recipientId, myId)),
+      where: or(eq(chats.userId, session.user.id), eq(chats.recipientId, session.user.id)),
+      with: {
+        recipient: true,
+        user: true,
+        messages: {
+          orderBy: [desc(messages.createdAt)],
+          limit: 1,
+        },
+      },
       orderBy: [desc(chats.createdAt)],
     });
 
-    const fullChats = await Promise.all(
-      myChats.map(async (chat) => {
-        const chatMessages = await db.query.messages.findMany({
-          where: eq(messages.chatId, chat.id),
-          orderBy: [desc(messages.createdAt)],
-          limit: 1,
-        });
+    const formattedChats = myChats.map((chat) => {
+      const otherUser = chat.userId === session.user.id ? chat.recipient : chat.user;
+      return {
+        ...chat,
+        participants: otherUser ? [otherUser] : [],
+        messages: chat.messages,
+      };
+    });
 
-        const otherUserId = chat.userId === myId ? chat.recipientId : chat.userId;
-        const otherUser = otherUserId
-          ? await db.query.users.findFirst({
-              where: eq(users.id, otherUserId),
-            })
-          : null;
-
-        return {
-          ...chat,
-          messages: chatMessages as unknown as Message[],
-          participants: otherUser ? [otherUser as unknown as User] : [],
-        };
-      }),
-    );
-
-    return { success: true, data: fullChats as unknown as FullChat[] };
+    return { success: true, data: formattedChats as unknown as FullChat[] };
   } catch (error) {
-    console.error('Error fetching chats:', error);
+    console.error('Error in getChatsAction:', error);
     return { success: false, error: 'Failed to fetch chats' };
   }
 }

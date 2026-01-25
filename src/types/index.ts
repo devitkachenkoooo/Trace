@@ -13,6 +13,13 @@ export interface Message {
   content: string;
   isRead: boolean;
   createdAt: Date;
+  replyToId?: string | null;
+  replyDetails?: {
+    id: string;
+    sender: { name?: string | null };
+    content: string;
+  } | null;
+  replyTo?: Message;
 }
 
 export interface Chat {

@@ -3,9 +3,9 @@ import type { Metadata } from 'next';
 import { Geist, Geist_Mono } from 'next/font/google';
 import { auth } from '@/auth';
 import AuthProvider from '@/components/auth/AuthProvider';
-import RealtimePresence from '@/components/realtime/RealtimePresence';
 import Navbar from '@/components/layout/Navbar';
 import Providers from '@/components/Providers';
+import RealtimePresence from '@/components/realtime/RealtimePresence';
 import Sidebar from '@/components/sidebar/Sidebar';
 import './globals.css';
 

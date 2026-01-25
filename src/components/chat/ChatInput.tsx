@@ -1,16 +1,17 @@
 'use client';
 
 import { Send } from 'lucide-react';
-import { useSession } from 'next-auth/react';
 import { useEffect, useRef, useState } from 'react';
 import { useSendMessage } from '@/hooks/useChatHooks';
 
 interface ChatInputProps {
   chatId: string;
   setTyping: (typing: boolean) => void;
+  replyToId?: string | null;
+  onReplyCancel?: () => void;
 }
 
-export default function ChatInput({ chatId, setTyping }: ChatInputProps) {
+export default function ChatInput({ chatId, setTyping, replyToId, onReplyCancel }: ChatInputProps) {
   const [content, setContent] = useState('');
   const sendMessage = useSendMessage(chatId);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -22,9 +23,10 @@ export default function ChatInput({ chatId, setTyping }: ChatInputProps) {
 
     setContent('');
     setTyping(false);
+    if (onReplyCancel) onReplyCancel();
 
     try {
-      await sendMessage.mutateAsync({ content: trimmed });
+      await sendMessage.mutateAsync({ content: trimmed, replyToId: replyToId || undefined });
     } catch (error) {
       // Preserve content on error so user doesn't lose it
       setContent(trimmed);

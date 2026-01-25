@@ -1,10 +1,10 @@
 'use client';
 
+import { useQueryClient } from '@tanstack/react-query';
 import { useSession } from 'next-auth/react';
 import { useEffect } from 'react';
 import { supabase } from '@/lib/supabase';
 import { usePresenceStore } from '@/store/usePresenceStore';
-import { useQueryClient } from '@tanstack/react-query';
 
 export default function RealtimePresence() {
   const { data: session } = useSession();
@@ -15,7 +15,7 @@ export default function RealtimePresence() {
     if (!session?.user?.id) return;
 
     const userId = session.user.id;
-    
+
     // 1. Канал для присутності (Online users)
     const presenceChannel = supabase.channel('online-users', {
       config: {
@@ -44,13 +44,17 @@ export default function RealtimePresence() {
     // 2. Глобальний слухач для нових повідомлень (сайдбар)
     const messagesChannel = supabase
       .channel('global-messages')
-      .on('postgres_changes', {
-        event: 'INSERT',
-        schema: 'public',
-        table: 'messages'
-      }, () => {
-        queryClient.invalidateQueries({ queryKey: ['chats'] });
-      })
+      .on(
+        'postgres_changes',
+        {
+          event: 'INSERT',
+          schema: 'public',
+          table: 'messages',
+        },
+        () => {
+          queryClient.invalidateQueries({ queryKey: ['chats'] });
+        },
+      )
       .subscribe();
 
     return () => {

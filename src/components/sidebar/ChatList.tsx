@@ -1,13 +1,23 @@
 'use client';
 
-import { MessageSquare } from 'lucide-react';
+import { MessageSquare, Trash2 } from 'lucide-react';
 import Link from 'next/link';
 import { useSession } from 'next-auth/react';
-import { useChats } from '@/hooks/useChatHooks';
+import { useState } from 'react';
+import { ConfirmationDialog } from '@/components/ui/confirmation-dialog';
+import {
+  ContextMenu,
+  ContextMenuContent,
+  ContextMenuItem,
+  ContextMenuTrigger,
+} from '@/components/ui/context-menu';
+import { useChats, useDeleteChat } from '@/hooks/useChatHooks';
 
 export default function ChatList() {
   const { data: chats, isLoading } = useChats();
   const { data: session } = useSession();
+  const deleteChat = useDeleteChat();
+  const [chatToDelete, setChatToDelete] = useState<string | null>(null);
 
   if (isLoading) {
     return (
@@ -29,48 +39,76 @@ export default function ChatList() {
   }
 
   return (
-    <div className="flex-1 overflow-y-auto px-2 space-y-1">
-      {chats.map((chat) => {
-        const lastMessage = chat.messages[0];
-        const isUnread =
-          lastMessage && !lastMessage.isRead && lastMessage.senderId !== session?.user?.id;
+    <>
+      <div className="flex-1 overflow-y-auto px-2 space-y-1">
+        {chats.map((chat) => {
+          const lastMessage = chat.messages[0];
+          const isUnread =
+            lastMessage && !lastMessage.isRead && lastMessage.senderId !== session?.user?.id;
 
-        return (
-          <Link
-            key={chat.id}
-            href={`/chat/${chat.id}`}
-            className="flex items-center gap-3 px-3 py-3 rounded-xl hover:bg-white/5 transition-all border border-transparent hover:border-white/5 group relative"
-          >
-            <div className="w-10 h-10 rounded-full bg-gradient-to-br from-white/10 to-transparent flex items-center justify-center border border-white/10 shrink-0">
-              <MessageSquare className="w-5 h-5 text-gray-400 group-hover:text-white transition-colors" />
-            </div>
-            <div className="flex-1 min-w-0">
-              <div className="flex items-center justify-between gap-2">
-                <p className="text-sm font-medium text-gray-200 truncate group-hover:text-white transition-colors">
-                  {chat.title}
-                </p>
-                {isUnread && (
-                  <div className="w-2.5 h-2.5 bg-blue-500 rounded-full shadow-[0_0_8px_rgba(59,130,246,0.5)]" />
-                )}
-              </div>
-              <div className="flex items-center justify-between gap-2 mt-0.5">
-                <p className="text-[11px] text-gray-500 truncate min-w-0">
-                  {lastMessage?.content || 'Немає повідомлень'}
-                </p>
-                <p
-                  className="text-[10px] text-gray-500 truncate uppercase tracking-wider font-semibold shrink-0"
-                  suppressHydrationWarning
+          return (
+            <ContextMenu key={chat.id}>
+              <ContextMenuTrigger>
+                <Link
+                  href={`/chat/${chat.id}`}
+                  className="flex items-center gap-3 px-3 py-3 rounded-xl hover:bg-white/5 transition-all border border-transparent hover:border-white/5 group relative"
                 >
-                  {new Intl.DateTimeFormat('uk-UA', {
-                    hour: '2-digit',
-                    minute: '2-digit',
-                  }).format(new Date(chat.createdAt))}
-                </p>
-              </div>
-            </div>
-          </Link>
-        );
-      })}
-    </div>
+                  <div className="w-10 h-10 rounded-full bg-gradient-to-br from-white/10 to-transparent flex items-center justify-center border border-white/10 shrink-0">
+                    <MessageSquare className="w-5 h-5 text-gray-400 group-hover:text-white transition-colors" />
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center justify-between gap-2">
+                      <p className="text-sm font-medium text-gray-200 truncate group-hover:text-white transition-colors">
+                        {chat.title}
+                      </p>
+                      {isUnread && (
+                        <div className="w-2.5 h-2.5 bg-blue-500 rounded-full shadow-[0_0_8px_rgba(59,130,246,0.5)]" />
+                      )}
+                    </div>
+                    <div className="flex items-center justify-between gap-2 mt-0.5">
+                      <p className="text-[11px] text-gray-500 truncate min-w-0">
+                        {lastMessage?.content || 'Немає повідомлень'}
+                      </p>
+                      <p
+                        className="text-[10px] text-gray-500 truncate uppercase tracking-wider font-semibold shrink-0"
+                        suppressHydrationWarning
+                      >
+                        {new Intl.DateTimeFormat('uk-UA', {
+                          hour: '2-digit',
+                          minute: '2-digit',
+                        }).format(new Date(chat.createdAt))}
+                      </p>
+                    </div>
+                  </div>
+                </Link>
+              </ContextMenuTrigger>
+              <ContextMenuContent>
+                <ContextMenuItem
+                  onClick={() => setChatToDelete(chat.id)}
+                  className="text-red-500 focus:text-red-500 gap-2 cursor-pointer"
+                >
+                  <Trash2 className="w-4 h-4" />
+                  Delete Chat
+                </ContextMenuItem>
+              </ContextMenuContent>
+            </ContextMenu>
+          );
+        })}
+      </div>
+
+      <ConfirmationDialog
+        open={!!chatToDelete}
+        onOpenChange={(open) => !open && setChatToDelete(null)}
+        title="Delete Chat"
+        description="Are you sure you want to delete this chat? This will remove it for everyone."
+        onConfirm={() => {
+          if (chatToDelete) {
+            deleteChat.mutate(chatToDelete);
+            setChatToDelete(null);
+          }
+        }}
+        isLoading={deleteChat.isPending}
+      />
+    </>
   );
 }

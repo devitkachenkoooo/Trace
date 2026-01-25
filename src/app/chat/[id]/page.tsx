@@ -2,22 +2,58 @@
 
 import Image from 'next/image';
 import { useSession } from 'next-auth/react';
-import { use, useEffect } from 'react';
+import { use, useEffect, useRef, useState } from 'react';
 import ChatInput from '@/components/chat/ChatInput';
-import { useChatDetails, useMarkAsRead, useMessages, usePresence } from '@/hooks/useChatHooks';
+import { MessageBubble } from '@/components/chat/MessageBubble';
+import { ReplyPreview } from '@/components/chat/ReplyPreview';
+import { ConfirmationDialog } from '@/components/ui/confirmation-dialog';
+import {
+  useChatDetails,
+  useDeleteMessage,
+  useMarkAsRead,
+  useMessages,
+  usePresence,
+  useScrollToMessage,
+} from '@/hooks/useChatHooks';
+import type { Message } from '@/types';
 
 export default function ChatPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = use(params);
   const { data: session } = useSession();
   const { data: chat, isLoading: isChatLoading } = useChatDetails(id);
-  const { 
-    data: messages, 
-    isLoading: isMessagesLoading, 
+  const {
+    data: messages,
+    isLoading: isMessagesLoading,
     isTyping,
-    setTyping
+    setTyping,
   } = useMessages(id, session?.user?.id);
   const markAsRead = useMarkAsRead();
   const { onlineUsers } = usePresence(session?.user?.id);
+
+  // New Hooks & State
+  const deleteMessage = useDeleteMessage(id);
+  const { scrollToMessage, highlightedId } = useScrollToMessage();
+  const [replyingTo, setReplyingTo] = useState<Message | null>(null);
+  const [messageToDelete, setMessageToDelete] = useState<string | null>(null);
+  const scrollRef = useRef<HTMLDivElement>(null);
+  const lastMessageCount = useRef(messages?.length || 0);
+
+  // Smart Scroll Logic
+  useEffect(() => {
+    if (!scrollRef.current || !messages || messages.length === 0) return;
+
+    // In flex-col-reverse, scrollTop 0 is the bottom.
+    const isNearBottom = scrollRef.current.scrollTop < 100;
+    const lastMessage = messages[0]; // Newest message (at the bottom)
+    const isMe = lastMessage?.senderId === session?.user?.id;
+
+    if (messages.length > lastMessageCount.current) {
+      if (isMe || isNearBottom) {
+        scrollRef.current.scrollTo({ top: 0, behavior: 'smooth' });
+      }
+    }
+    lastMessageCount.current = messages.length;
+  }, [messages, session?.user?.id]);
 
   useEffect(() => {
     if (id) {
@@ -41,7 +77,7 @@ export default function ChatPage({ params }: { params: Promise<{ id: string }> }
     );
   }
 
-  const otherParticipant = chat.participants.find(p => p.id !== session?.user?.id);
+  const otherParticipant = chat.participants.find((p) => p.id !== session?.user?.id);
   const isOnline = otherParticipant && onlineUsers.has(otherParticipant.id);
   const isTypingNow = otherParticipant && isTyping[otherParticipant.id];
 
@@ -71,7 +107,9 @@ export default function ChatPage({ params }: { params: Promise<{ id: string }> }
             <h2 className="text-xl font-bold text-white">
               {otherParticipant?.name || 'Unknown User'}
             </h2>
-            <p className={`text-xs ${isTypingNow || isOnline ? 'text-green-500 font-medium' : 'text-gray-400'}`}>
+            <p
+              className={`text-xs ${isTypingNow || isOnline ? 'text-green-500 font-medium' : 'text-gray-400'}`}
+            >
               {statusText}
             </p>
           </div>
@@ -79,47 +117,66 @@ export default function ChatPage({ params }: { params: Promise<{ id: string }> }
       </div>
 
       {/* Messages */}
-      <div className="flex-1 overflow-y-auto p-6 space-y-4 flex flex-col-reverse">
-
+      <div 
+        ref={scrollRef}
+        className="flex-1 overflow-y-auto p-6 flex flex-col-reverse"
+      >
         {!messages || messages.length === 0 ? (
           <div className="flex items-center justify-center h-full text-gray-500 text-sm">
             Немає повідомлень. Почніть спілкування!
           </div>
         ) : (
-          messages.map((message) => {
-            const isMe = message.senderId === session?.user?.id;
-            return (
-              <div key={message.id} className={`flex ${isMe ? 'justify-end' : 'justify-start'}`}>
-                <div
-                  className={`max-w-[70%] px-4 py-2 rounded-2xl ${
-                    isMe
-                      ? 'bg-blue-600 text-white rounded-br-none'
-                      : 'bg-white/10 text-gray-200 rounded-bl-none'
-                  }`}
-                >
-                  <p className="text-sm">{message.content}</p>
-                  <div className="flex items-center justify-between gap-2 mt-1">
-                    <span className="text-[10px] opacity-70 block">
-                      {new Date(message.createdAt).toLocaleTimeString('en-US', {
-                        hour: '2-digit',
-                        minute: '2-digit',
-                      })}
-                    </span>
-                    {isMe && (
-                      <span className="text-[10px] opacity-70">
-                        {message.isRead ? 'Read' : 'Sent'}
-                      </span>
-                    )}
-                  </div>
-                </div>
-              </div>
-            );
-          })
+          messages.map((message) => (
+            <MessageBubble
+              key={message.id}
+              message={message}
+              currentUserId={session?.user?.id}
+              onReply={setReplyingTo}
+              onDelete={setMessageToDelete}
+              onScrollToMessage={scrollToMessage}
+              isHighlighed={highlightedId === message.id}
+              otherParticipantName={otherParticipant?.name || undefined}
+            />
+          ))
         )}
       </div>
 
-      {/* Input */}
-      <ChatInput chatId={id} setTyping={setTyping} />
+      {/* Input Section */}
+      <div className="flex flex-col">
+        {replyingTo && (
+          <ReplyPreview
+            replyingTo={{
+              id: replyingTo.id,
+              sender:
+                replyingTo.senderId === session?.user?.id
+                  ? 'You'
+                  : otherParticipant?.name || 'Unknown',
+              content: replyingTo.content,
+            }}
+            onCancel={() => setReplyingTo(null)}
+          />
+        )}
+        <ChatInput
+          chatId={id}
+          setTyping={setTyping}
+          replyToId={replyingTo?.id}
+          onReplyCancel={() => setReplyingTo(null)}
+        />
+      </div>
+
+      <ConfirmationDialog
+        open={!!messageToDelete}
+        onOpenChange={(open) => !open && setMessageToDelete(null)}
+        title="Delete Message"
+        description="Are you sure you want to delete this message? This action cannot be undone."
+        onConfirm={() => {
+          if (messageToDelete) {
+            deleteMessage.mutate(messageToDelete);
+            setMessageToDelete(null);
+          }
+        }}
+        isLoading={deleteMessage.isPending}
+      />
     </div>
   );
 }

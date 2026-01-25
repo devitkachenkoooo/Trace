@@ -1,7 +1,10 @@
+import type { RealtimeChannel } from '@supabase/supabase-js';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useSession } from 'next-auth/react';
-import { useEffect, useState, useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import {
+  deleteChatAction,
+  deleteMessageAction,
   getChatsAction,
   getFullChatAction,
   markAsReadAction,
@@ -11,10 +14,21 @@ import {
 } from '@/actions/chat-actions';
 import { supabase } from '@/lib/supabase';
 import { usePresenceStore } from '@/store/usePresenceStore';
-import type { Message } from '@/types';
+import type { FullChat, Message } from '@/types';
 
-interface ExtendedMessage extends Message {
-  isOptimistic?: boolean;
+interface DbMessage {
+  id: string;
+  sender_id?: string;
+  senderId?: string;
+  chat_id?: string;
+  chatId?: string;
+  content: string;
+  is_read?: boolean;
+  isRead?: boolean;
+  reply_to_id?: string | null;
+  replyToId?: string | null;
+  created_at?: string | Date;
+  createdAt?: string | Date;
 }
 
 export function useChats() {
@@ -22,7 +36,10 @@ export function useChats() {
     queryKey: ['chats'],
     queryFn: async () => {
       const result = await getChatsAction();
-      if (!result.success) throw new Error(result.error);
+      if (!result.success) {
+        throw new Error(result.error);
+      }
+      // Після перевірки success, TS гарантує наявність data
       return result.data;
     },
   });
@@ -31,7 +48,7 @@ export function useChats() {
 export function useMessages(chatId: string, currentUserId: string | undefined) {
   const queryClient = useQueryClient();
   const [isTyping, setIsTyping] = useState<Record<string, boolean>>({});
-  const channelRef = useRef<any>(null);
+  const channelRef = useRef<RealtimeChannel | null>(null);
   const timeoutsRef = useRef<Record<string, NodeJS.Timeout>>({});
 
   useEffect(() => {
@@ -39,60 +56,82 @@ export function useMessages(chatId: string, currentUserId: string | undefined) {
 
     const channel = supabase
       .channel(`chat_room:${chatId}`, {
-        config: {
-          broadcast: { self: true }
-        }
+        config: { broadcast: { self: true } },
       })
-      .on('postgres_changes', { 
-        event: 'INSERT', 
-        schema: 'public', 
-        table: 'messages', 
-        filter: `chat_id=eq.${chatId}` 
-      }, (payload) => {
-        const raw = payload.new as any;
-        
-        // НОРМАЛІЗАЦІЯ ДАНИХ: Перетворюємо snake_case (DB) у camelCase (UI)
-        const newMessage: ExtendedMessage = {
-          ...raw,
-          senderId: raw.sender_id, // Критично важливо
-          chatId: raw.chat_id,
-          createdAt: raw.created_at,
-          isOptimistic: false
-        };
-        
-        queryClient.setQueryData<ExtendedMessage[]>(['messages', chatId], (old) => {
-          if (!old) return [newMessage];
-          if (old.some((m) => m.id === newMessage.id)) return old;
-          
-          // Шукаємо оптимістичне повідомлення для заміни
-          const matchIndex = old.findIndex(m => 
-            m.isOptimistic && 
-            (m.senderId === newMessage.senderId || m.senderId === currentUserId) &&
-            m.content.trim() === newMessage.content.trim()
-          );
+      .on(
+        'postgres_changes',
+        {
+          event: '*', // Слухаємо всі зміни (INSERT, DELETE)
+          schema: 'public',
+          table: 'messages',
+          filter: `chat_id=eq.${chatId}`,
+        },
+        (payload) => {
+          if (payload.eventType === 'INSERT') {
+            const raw = payload.new as DbMessage;
 
-          if (matchIndex !== -1) {
-            const updated = [...old];
-            updated[matchIndex] = newMessage;
-            return updated;
+            queryClient.setQueryData<(Message & { isOptimistic?: boolean })[]>(['messages', chatId], (old) => {
+              const currentMessages = old || [];
+              
+              // 1. Уникаємо дублікатів (якщо це наше ж повідомлення вже додане оптимістично)
+              if (currentMessages.some((m) => m.id === raw.id)) return currentMessages;
+
+              // 2. МАГІЯ РЕПЛАЮ: Шукаємо повідомлення, на яке відповіли, у локальному кеші юзера
+              const parentId = raw.reply_to_id || raw.replyToId;
+              const foundParent = parentId 
+                ? (currentMessages.find(m => m.id === parentId) as Message | undefined)
+                : undefined;
+
+              const newMessage: Message & { isOptimistic?: boolean } = {
+                id: raw.id,
+                content: raw.content || '',
+                isRead: !!(raw.is_read || raw.isRead),
+                senderId: String(raw.sender_id || raw.senderId || ''),
+                chatId: String(raw.chat_id || raw.chatId || ''),
+                replyToId: (parentId || undefined) as string | undefined,
+                replyTo: foundParent,
+                createdAt: new Date(raw.created_at || raw.createdAt || Date.now()),
+                isOptimistic: false,
+              };
+
+              // 3. Перевіряємо, чи потрібно замінити оптимістичне повідомлення (наше власне)
+              const matchIndex = currentMessages.findIndex(
+                (m) =>
+                  m.isOptimistic &&
+                  (m.senderId === newMessage.senderId || m.senderId === currentUserId) &&
+                  m.content.trim() === newMessage.content.trim(),
+              );
+
+              if (matchIndex !== -1) {
+                const updated = [...currentMessages];
+                updated[matchIndex] = newMessage;
+                return updated;
+              }
+
+              // Додаємо нове повідомлення на початок (оскільки flex-col-reverse)
+              return [newMessage, ...currentMessages];
+            });
+
+            queryClient.invalidateQueries({ queryKey: ['chats'] });
+          } else if (payload.eventType === 'DELETE') {
+            const deletedId = payload.old.id;
+            queryClient.setQueryData<(Message & { isOptimistic?: boolean })[]>(['messages', chatId], (old) => {
+              return old ? old.filter((m) => m.id !== deletedId) : [];
+            });
           }
-          return [newMessage, ...old];
-        });
-
-        // Оновлюємо список чатів для нотифікацій
-        queryClient.invalidateQueries({ queryKey: ['chats'] });
-      })
+        },
+      )
       .on('broadcast', { event: 'typing' }, ({ payload }) => {
         if (payload.userId !== currentUserId) {
-          setIsTyping(prev => ({ ...prev, [payload.userId]: payload.isTyping }));
-          
+          setIsTyping((prev) => ({ ...prev, [payload.userId]: payload.isTyping }));
+
           if (timeoutsRef.current[payload.userId]) {
             clearTimeout(timeoutsRef.current[payload.userId]);
           }
 
           if (payload.isTyping) {
             timeoutsRef.current[payload.userId] = setTimeout(() => {
-              setIsTyping(prev => {
+              setIsTyping((prev) => {
                 const updated = { ...prev };
                 delete updated[payload.userId];
                 return updated;
@@ -116,7 +155,10 @@ export function useMessages(chatId: string, currentUserId: string | undefined) {
   }, [chatId, queryClient, currentUserId]);
 
   const setTyping = (typing: boolean) => {
-    if (channelRef.current && (channelRef.current.state === 'joined' || channelRef.current.state === 'joining')) {
+    if (
+      channelRef.current &&
+      (channelRef.current.state === 'joined' || channelRef.current.state === 'joining')
+    ) {
       channelRef.current.send({
         type: 'broadcast',
         event: 'typing',
@@ -129,14 +171,29 @@ export function useMessages(chatId: string, currentUserId: string | undefined) {
     queryKey: ['messages', chatId],
     queryFn: async () => {
       const result = await getFullChatAction(chatId);
-      if (!result.success) throw new Error(result.error);
-      // Також нормалізуємо дані при першому завантаженні
-      return result.data.messages.map((m: any) => ({ 
-        ...m, 
-        senderId: m.sender_id || m.senderId,
-        chatId: m.chat_id || m.chatId,
-        createdAt: m.created_at || m.createdAt
-      }));
+      
+      if (!result.success || !result.data) {
+        throw new Error(result.error || 'Failed to fetch messages');
+      }
+
+      // Мапимо дані з бази в наш формат
+      return result.data.messages.map((m: DbMessage & { 
+        replyDetails?: { 
+          id: string; 
+          sender: { name?: string | null }; 
+          content: string 
+        } | null 
+      }) => ({
+        ...m,
+        id: m.id,
+        content: m.content,
+        isRead: !!(m.is_read || m.isRead),
+        senderId: String(m.sender_id || m.senderId || ''),
+        chatId: String(m.chat_id || m.chatId || ''),
+        replyToId: (m.reply_to_id || m.replyToId || undefined) as string | undefined,
+        createdAt: new Date(m.created_at || m.createdAt || Date.now()),
+        replyDetails: m.replyDetails,
+      })) as (Message & { isOptimistic?: boolean })[];
     },
     enabled: !!chatId,
   });
@@ -144,13 +201,81 @@ export function useMessages(chatId: string, currentUserId: string | undefined) {
   return { ...query, isTyping, setTyping };
 }
 
-// Решта функцій залишається без змін (я їх додав нижче для цілісності файлу)
+export function useDeleteMessage(chatId: string) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (messageId: string) => deleteMessageAction(messageId),
+    onMutate: async (messageId) => {
+      await queryClient.cancelQueries({ queryKey: ['messages', chatId] });
+      const previousMessages = queryClient.getQueryData<(Message & { isOptimistic?: boolean })[]>(['messages', chatId]);
+
+      queryClient.setQueryData<(Message & { isOptimistic?: boolean })[]>(['messages', chatId], (old) => {
+        return old ? old.filter((m) => m.id !== messageId) : [];
+      });
+
+      return { previousMessages };
+    },
+    onError: (_err, _variables, context) => {
+      if (context?.previousMessages) {
+        queryClient.setQueryData(['messages', chatId], context.previousMessages);
+      }
+    },
+    onSettled: () => {
+      queryClient.invalidateQueries({ queryKey: ['messages', chatId] });
+    },
+  });
+}
+
+export function useDeleteChat() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (chatId: string) => deleteChatAction(chatId),
+    onMutate: async (chatId) => {
+      await queryClient.cancelQueries({ queryKey: ['chats'] });
+      const previousChats = queryClient.getQueryData<FullChat[]>(['chats']);
+
+      queryClient.setQueryData<FullChat[]>(['chats'], (old) => {
+        return old ? old.filter((c) => c.id !== chatId) : [];
+      });
+
+      return { previousChats };
+    },
+    onError: (_err, _variables, context) => {
+      if (context?.previousChats) {
+        queryClient.setQueryData(['chats'], context.previousChats);
+      }
+    },
+    onSettled: () => {
+      queryClient.invalidateQueries({ queryKey: ['chats'] });
+    },
+  });
+}
+
+export function useScrollToMessage() {
+  const [highlightedId, setHighlightedId] = useState<string | null>(null);
+
+  const scrollToMessage = (messageId: string) => {
+    const element = document.getElementById(`message-${messageId}`);
+    if (element) {
+      element.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      setHighlightedId(messageId);
+      setTimeout(() => setHighlightedId(null), 2000);
+    } else {
+      console.warn('Message not found in DOM');
+    }
+  };
+
+  return { scrollToMessage, highlightedId };
+}
+
 export function useChatDetails(chatId: string) {
   return useQuery({
     queryKey: ['chat', chatId],
     queryFn: async () => {
       const result = await getFullChatAction(chatId);
-      if (!result.success) throw new Error(result.error);
+      if (!result.success) {
+        throw new Error(result.error);
+      }
       return result.data;
     },
     enabled: !!chatId,
@@ -162,22 +287,24 @@ export function useSendMessage(chatId: string) {
   const { data: session } = useSession();
 
   return useMutation({
-    mutationFn: ({ content }: { content: string }) => sendMessageAction(chatId, content),
-    onMutate: async ({ content }) => {
+    mutationFn: ({ content, replyToId }: { content: string; replyToId?: string }) =>
+      sendMessageAction(chatId, content, replyToId),
+    onMutate: async ({ content, replyToId }) => {
       await queryClient.cancelQueries({ queryKey: ['messages', chatId] });
-      const previousMessages = queryClient.getQueryData<ExtendedMessage[]>(['messages', chatId]);
+      const previousMessages = queryClient.getQueryData<(Message & { isOptimistic?: boolean })[]>(['messages', chatId]);
 
-      const optimisticMessage: ExtendedMessage = {
+      const optimisticMessage: Message & { isOptimistic?: boolean } = {
         id: crypto.randomUUID(),
         chatId,
         senderId: session?.user?.id || 'me',
         content,
+        replyToId: replyToId,
         isRead: false,
         createdAt: new Date(),
         isOptimistic: true,
       };
 
-      queryClient.setQueryData<ExtendedMessage[]>(['messages', chatId], (old) => [
+      queryClient.setQueryData<(Message & { isOptimistic?: boolean })[]>(['messages', chatId], (old) => [
         optimisticMessage,
         ...(old || []),
       ]);
@@ -217,14 +344,16 @@ export function useSearchUsers(query: string) {
     queryFn: async () => {
       if (query && query.length < 2) return [];
       const result = await searchUsersAction(query);
-      if (!result.success) throw new Error(result.error);
+      if (!result.success) {
+        throw new Error(result.error);
+      }
       return result.data;
     },
     staleTime: 30 * 1000,
   });
 }
 
-const LAST_SEEN_THROTTLE = 1000 * 60 * 5; 
+const LAST_SEEN_THROTTLE = 1000 * 60 * 5;
 
 export function useUpdateLastSeen(userId: string | undefined) {
   useEffect(() => {
