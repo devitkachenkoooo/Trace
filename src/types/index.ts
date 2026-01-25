@@ -6,11 +6,25 @@ export interface User {
   lastSeen?: Date | null;
 }
 
+export interface Attachment {
+  id: string;
+  type: 'image' | 'file';
+  url: string;
+  metadata: {
+    name: string;
+    size: number;
+    width?: number;
+    height?: number;
+    expired?: boolean;
+  };
+}
+
 export interface Message {
   id: string;
   chatId: string;
   senderId: string;
   content: string;
+  attachments: Attachment[];
   isRead: boolean;
   createdAt: Date;
   replyToId?: string | null;

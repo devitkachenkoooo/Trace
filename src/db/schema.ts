@@ -1,6 +1,7 @@
-import { boolean, integer, pgTable, primaryKey, text, timestamp } from 'drizzle-orm/pg-core';
+import { boolean, integer, jsonb, pgTable, primaryKey, text, timestamp } from 'drizzle-orm/pg-core';
 import type { AdapterAccountType } from 'next-auth/adapters';
 import { relations } from 'drizzle-orm';
+import type { Attachment } from '@/types';
 
 // --- ТАБЛИЦІ АВТОРИЗАЦІЇ ---
 
@@ -83,7 +84,8 @@ export const messages = pgTable('messages', {
   senderId: text('sender_id')
     .notNull()
     .references(() => users.id, { onDelete: 'cascade' }),
-  content: text('content').notNull(),
+  content: text('content'),
+  attachments: jsonb('attachments').$type<Attachment[]>().notNull().default([]),
   replyToId: text('reply_to_id'), // Self-reference added
   isRead: boolean('is_read').notNull().default(false),
   createdAt: timestamp('created_at').notNull().defaultNow(),

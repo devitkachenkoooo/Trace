@@ -14,7 +14,7 @@ import {
 } from '@/actions/chat-actions';
 import { supabase } from '@/lib/supabase';
 import { usePresenceStore } from '@/store/usePresenceStore';
-import type { FullChat, Message } from '@/types';
+import type { Attachment, FullChat, Message } from '@/types';
 
 interface DbMessage {
   id: string;
@@ -23,6 +23,7 @@ interface DbMessage {
   chat_id?: string;
   chatId?: string;
   content: string;
+  attachments?: Attachment[];
   is_read?: boolean;
   isRead?: boolean;
   reply_to_id?: string | null;
@@ -85,6 +86,7 @@ export function useMessages(chatId: string, currentUserId: string | undefined) {
               const newMessage: Message & { isOptimistic?: boolean } = {
                 id: raw.id,
                 content: raw.content || '',
+                attachments: raw.attachments || [],
                 isRead: !!(raw.is_read || raw.isRead),
                 senderId: String(raw.sender_id || raw.senderId || ''),
                 chatId: String(raw.chat_id || raw.chatId || ''),
@@ -187,6 +189,7 @@ export function useMessages(chatId: string, currentUserId: string | undefined) {
         ...m,
         id: m.id,
         content: m.content,
+        attachments: m.attachments || [],
         isRead: !!(m.is_read || m.isRead),
         senderId: String(m.sender_id || m.senderId || ''),
         chatId: String(m.chat_id || m.chatId || ''),
@@ -287,9 +290,16 @@ export function useSendMessage(chatId: string) {
   const { data: session } = useSession();
 
   return useMutation({
-    mutationFn: ({ content, replyToId }: { content: string; replyToId?: string }) =>
-      sendMessageAction(chatId, content, replyToId),
-    onMutate: async ({ content, replyToId }) => {
+    mutationFn: ({ 
+      content, 
+      replyToId, 
+      attachments = [] 
+    }: { 
+      content: string; 
+      replyToId?: string; 
+      attachments?: Attachment[] 
+    }) => sendMessageAction(chatId, content, replyToId, attachments),
+    onMutate: async ({ content, replyToId, attachments = [] }) => {
       await queryClient.cancelQueries({ queryKey: ['messages', chatId] });
       const previousMessages = queryClient.getQueryData<(Message & { isOptimistic?: boolean })[]>(['messages', chatId]);
 
@@ -298,6 +308,7 @@ export function useSendMessage(chatId: string) {
         chatId,
         senderId: session?.user?.id || 'me',
         content,
+        attachments,
         replyToId: replyToId,
         isRead: false,
         createdAt: new Date(),

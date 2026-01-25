@@ -7,7 +7,7 @@ import { auth } from '@/auth';
 import { db } from '@/db';
 import { chats, messages, users } from '@/db/schema';
 
-import type { FullChat, Message, User } from '@/types';
+import type { Attachment, FullChat, Message, User } from '@/types';
 
 // Оптимізований getFullChatAction
 export async function getFullChatAction(chatId: string) {
@@ -144,9 +144,18 @@ export async function sendMessageAction(
   chatId: string,
   content: string,
   replyToId?: string,
+  attachments: Attachment[] = [],
 ): Promise<{ success: true; data: Message } | { success: false; error: string }> {
   const session = await auth();
   if (!session?.user?.id) return { success: false, error: 'Unauthorized' };
+
+
+  const trimmedContent = content.trim();
+  const hasAttachments = attachments.length > 0;
+
+  if (!trimmedContent && !hasAttachments) {
+    return { success: false, error: 'Message must have content or attachments' };
+  }
 
   try {
     const [newMessage] = await db
@@ -154,8 +163,9 @@ export async function sendMessageAction(
       .values({
         chatId,
         senderId: session.user.id,
-        content: content.trim(),
+        content: trimmedContent,
         replyToId: replyToId || null,
+        attachments: attachments,
       })
       .returning();
 

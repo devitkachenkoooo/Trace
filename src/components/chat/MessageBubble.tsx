@@ -1,6 +1,6 @@
 'use client';
 
-import { Reply, Trash2 } from 'lucide-react';
+import { Reply, Trash2, FileIcon, Download } from 'lucide-react';
 import {
   ContextMenu,
   ContextMenuContent,
@@ -9,6 +9,7 @@ import {
 } from '@/components/ui/context-menu';
 import { cn } from '@/lib/utils';
 import type { Message } from '@/types';
+import { MessageMediaGrid } from './MessageMediaGrid';
 
 interface MessageBubbleProps {
   message: Message;
@@ -30,6 +31,8 @@ export function MessageBubble({
   otherParticipantName,
 }: MessageBubbleProps) {
   const isMe = message.senderId === currentUserId;
+  const imageAttachments = message.attachments?.filter(a => a.type === 'image') || [];
+  const fileAttachments = message.attachments?.filter(a => a.type === 'file') || [];
 
   return (
     <div
@@ -79,9 +82,39 @@ export function MessageBubble({
                 isMe
                   ? 'bg-blue-600 text-white rounded-2xl rounded-tr-sm'
                   : 'bg-white/10 text-gray-100 rounded-2xl rounded-tl-sm',
+                imageAttachments.length > 0 && !message.content ? 'p-1 bg-transparent border-none' : ''
               )}
             >
-              <p>{message.content}</p>
+              {imageAttachments.length > 0 && (
+                <div className="mb-2">
+                  <MessageMediaGrid images={imageAttachments} />
+                </div>
+              )}
+
+              {message.content && <p>{message.content}</p>}
+
+              {fileAttachments.length > 0 && (
+                <div className="mt-2 space-y-1">
+                  {fileAttachments.map((file) => (
+                    <a
+                      key={file.id}
+                      href={file.url}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="flex items-center gap-2 p-2 rounded-lg bg-black/20 hover:bg-black/30 transition-colors border border-white/5"
+                    >
+                      <FileIcon className="w-5 h-5 text-blue-400" />
+                      <div className="flex-1 min-w-0">
+                        <p className="text-xs font-medium truncate">{file.metadata.name}</p>
+                        <p className="text-[10px] text-gray-400">
+                          {(file.metadata.size / 1024 / 1024).toFixed(2)} MB
+                        </p>
+                      </div>
+                      <Download className="w-4 h-4 text-gray-400" />
+                    </a>
+                  ))}
+                </div>
+              )}
 
               <div className="flex items-center justify-end gap-1 mt-1 opacity-70">
                 <span className="text-[10px]">
