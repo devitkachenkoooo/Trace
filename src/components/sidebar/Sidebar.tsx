@@ -7,7 +7,5 @@ export default async function Sidebar() {
 
   if (!userId || !session?.user) return null;
 
-  return (
-    <SidebarShell />
-  );
+  return <SidebarShell />;
 }

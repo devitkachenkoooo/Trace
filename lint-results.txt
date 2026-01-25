@@ -1,0 +1,18 @@
+
+> my-messenger@0.1.0 lint C:\Users\f4u4b\Desktop\Projects\Trace
+> eslint src
+
+
+C:\Users\f4u4b\Desktop\Projects\Trace\src\app\chat\[id]\page.tsx
+  21:6  warning  React Hook useEffect has a missing dependency: 'markAsRead'. Either include it or remove the dependency array  react-hooks/exhaustive-deps
+
+C:\Users\f4u4b\Desktop\Projects\Trace\src\hooks\useChatHooks.ts
+  146:17  warning  '_data' is defined but never used    @typescript-eslint/no-unused-vars
+  146:24  warning  '_chatId' is defined but never used  @typescript-eslint/no-unused-vars
+
+C:\Users\f4u4b\Desktop\Projects\Trace\src\wdyr.ts
+  7:29  error  A `require()` style import is forbidden  @typescript-eslint/no-require-imports
+
+✖ 4 problems (1 error, 3 warnings)
+
+ ELIFECYCLE  Command failed with exit code 1.

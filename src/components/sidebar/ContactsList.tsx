@@ -2,9 +2,9 @@
 
 import { MessageSquarePlus, User as UserIcon } from 'lucide-react';
 import Image from 'next/image';
-import { getOrCreateChatAction } from '@/actions/chat-actions';
-import { useSearchUsers, usePresence } from '@/hooks/useChatHooks';
 import { useSession } from 'next-auth/react';
+import { getOrCreateChatAction } from '@/actions/chat-actions';
+import { usePresence, useSearchUsers } from '@/hooks/useChatHooks';
 
 interface ContactsListProps {
   query: string;
@@ -56,7 +56,7 @@ export default function ContactsList({ query }: ContactsListProps) {
       </div>
       {users.map((user) => {
         const isOnline = onlineUsers.has(user.id);
-        
+
         return (
           <div
             key={user.id}

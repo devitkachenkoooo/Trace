@@ -2,12 +2,12 @@
 
 import { Menu, MessageSquare, Users } from 'lucide-react';
 import { useRouter, useSearchParams } from 'next/navigation';
+import { useSession } from 'next-auth/react';
 import { useEffect } from 'react';
+import { useUpdateLastSeen } from '@/hooks/useChatHooks';
 import ChatList from './ChatList';
 import ContactsList from './ContactsList';
 import SearchInput from './SearchInput';
-import { useUpdateLastSeen } from '@/hooks/useChatHooks';
-import { useSession } from 'next-auth/react';
 
 export default function SidebarShell() {
   const { data: session } = useSession();
@@ -80,9 +80,7 @@ export default function SidebarShell() {
         </div>
 
         {/* Contacts Specific UI */}
-        {tab === 'contacts' && (
-          <SearchInput />
-        )}
+        {tab === 'contacts' && <SearchInput />}
 
         {/* Chats Specific UI */}
         {tab === 'chats' && <div className="h-4" />}

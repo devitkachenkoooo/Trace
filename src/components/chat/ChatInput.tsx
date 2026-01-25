@@ -1,19 +1,18 @@
 'use client';
 
-import { useState, useRef, useEffect } from 'react';
 import { Send } from 'lucide-react';
-import { useSendMessage, useTyping } from '@/hooks/useChatHooks';
 import { useSession } from 'next-auth/react';
+import { useEffect, useRef, useState } from 'react';
+import { useSendMessage } from '@/hooks/useChatHooks';
 
 interface ChatInputProps {
   chatId: string;
+  setTyping: (typing: boolean) => void;
 }
 
-export default function ChatInput({ chatId }: ChatInputProps) {
-  const { data: session } = useSession();
+export default function ChatInput({ chatId, setTyping }: ChatInputProps) {
   const [content, setContent] = useState('');
   const sendMessage = useSendMessage(chatId);
-  const { setTyping } = useTyping(chatId, session?.user?.id);
   const inputRef = useRef<HTMLInputElement>(null);
 
   const handleSubmit = async (e?: React.FormEvent) => {
@@ -23,7 +22,7 @@ export default function ChatInput({ chatId }: ChatInputProps) {
 
     setContent('');
     setTyping(false);
-    
+
     try {
       await sendMessage.mutateAsync({ content: trimmed });
     } catch (error) {
@@ -64,7 +63,7 @@ export default function ChatInput({ chatId }: ChatInputProps) {
           className="w-full bg-white/5 border border-white/10 rounded-full px-5 py-3 text-sm text-white focus:outline-none focus:border-blue-500 transition-all disabled:opacity-50"
         />
       </div>
-      
+
       {isButtonVisible && (
         <button
           type="submit"

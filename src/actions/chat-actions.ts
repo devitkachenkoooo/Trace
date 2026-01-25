@@ -9,7 +9,9 @@ import { chats, messages, users } from '@/db/schema';
 
 import type { FullChat, Message, User } from '@/types';
 
-export async function getFullChatAction(chatId: string): Promise<{ success: true; data: FullChat } | { success: false; error: string }> {
+export async function getFullChatAction(
+  chatId: string,
+): Promise<{ success: true; data: FullChat } | { success: false; error: string }> {
   const session = await auth();
   if (!session?.user?.id) return { success: false, error: 'Unauthorized' };
 
@@ -26,7 +28,8 @@ export async function getFullChatAction(chatId: string): Promise<{ success: true
     });
 
     const otherUserId = chat.userId === session.user.id ? chat.recipientId : chat.userId;
-    if (!otherUserId) return { success: true, data: { ...chat, messages: chatMessages, participants: [] } };
+    if (!otherUserId)
+      return { success: true, data: { ...chat, messages: chatMessages, participants: [] } };
 
     const otherUser = await db.query.users.findFirst({
       where: eq(users.id, otherUserId),
@@ -46,7 +49,9 @@ export async function getFullChatAction(chatId: string): Promise<{ success: true
   }
 }
 
-export async function searchUsersAction(query: string): Promise<{ success: true; data: User[] } | { success: false; error: string }> {
+export async function searchUsersAction(
+  query: string,
+): Promise<{ success: true; data: User[] } | { success: false; error: string }> {
   const session = await auth();
   if (!session?.user?.id) return { success: false, error: 'Unauthorized' };
 
@@ -64,7 +69,9 @@ export async function searchUsersAction(query: string): Promise<{ success: true;
       });
 
       // Get unique IDs of people I've chatted with
-      const participantIds = myChats.map((c) => (c.userId === myId ? c.recipientId : c.userId)).filter(Boolean) as string[];
+      const participantIds = myChats
+        .map((c) => (c.userId === myId ? c.recipientId : c.userId))
+        .filter(Boolean) as string[];
 
       if (participantIds.length === 0) {
         return { success: true, data: [] };
@@ -78,7 +85,10 @@ export async function searchUsersAction(query: string): Promise<{ success: true;
     }
 
     const results = await db.query.users.findMany({
-      where: and(ne(users.id, myId), or(ilike(users.name, `%${query}%`), ilike(users.email, `%${query}%`))),
+      where: and(
+        ne(users.id, myId),
+        or(ilike(users.name, `%${query}%`), ilike(users.email, `%${query}%`)),
+      ),
       limit: 20,
     });
     return { success: true, data: results };
@@ -125,7 +135,10 @@ export async function getOrCreateChatAction(targetUserId: string) {
   redirect(`/chat/${newChat.id}`);
 }
 
-export async function sendMessageAction(chatId: string, content: string): Promise<{ success: true; data: Message } | { success: false; error: string }> {
+export async function sendMessageAction(
+  chatId: string,
+  content: string,
+): Promise<{ success: true; data: Message } | { success: false; error: string }> {
   const session = await auth();
   if (!session?.user?.id) return { success: false, error: 'Unauthorized' };
 
@@ -146,7 +159,9 @@ export async function sendMessageAction(chatId: string, content: string): Promis
   }
 }
 
-export async function markAsReadAction(chatId: string): Promise<{ success: true } | { success: false; error: string }> {
+export async function markAsReadAction(
+  chatId: string,
+): Promise<{ success: true } | { success: false; error: string }> {
   const session = await auth();
   if (!session?.user?.id) return { success: false, error: 'Unauthorized' };
 
@@ -154,7 +169,13 @@ export async function markAsReadAction(chatId: string): Promise<{ success: true 
     await db
       .update(messages)
       .set({ isRead: true })
-      .where(and(eq(messages.chatId, chatId), ne(messages.senderId, session.user.id), eq(messages.isRead, false)));
+      .where(
+        and(
+          eq(messages.chatId, chatId),
+          ne(messages.senderId, session.user.id),
+          eq(messages.isRead, false),
+        ),
+      );
 
     return { success: true };
   } catch (error) {
@@ -163,7 +184,9 @@ export async function markAsReadAction(chatId: string): Promise<{ success: true 
   }
 }
 
-export async function getChatsAction(): Promise<{ success: true; data: FullChat[] } | { success: false; error: string }> {
+export async function getChatsAction(): Promise<
+  { success: true; data: FullChat[] } | { success: false; error: string }
+> {
   const session = await auth();
   if (!session?.user?.id) return { success: false, error: 'Unauthorized' };
 
@@ -195,7 +218,7 @@ export async function getChatsAction(): Promise<{ success: true; data: FullChat[
           messages: chatMessages as unknown as Message[],
           participants: otherUser ? [otherUser as unknown as User] : [],
         };
-      })
+      }),
     );
 
     return { success: true, data: fullChats as unknown as FullChat[] };
@@ -205,15 +228,14 @@ export async function getChatsAction(): Promise<{ success: true; data: FullChat[
   }
 }
 
-export async function updateLastSeenAction(): Promise<{ success: true } | { success: false; error: string }> {
+export async function updateLastSeenAction(): Promise<
+  { success: true } | { success: false; error: string }
+> {
   const session = await auth();
   if (!session?.user?.id) return { success: false, error: 'Unauthorized' };
 
   try {
-    await db
-      .update(users)
-      .set({ lastSeen: new Date() })
-      .where(eq(users.id, session.user.id));
+    await db.update(users).set({ lastSeen: new Date() }).where(eq(users.id, session.user.id));
 
     return { success: true };
   } catch (error) {

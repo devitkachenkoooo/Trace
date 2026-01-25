@@ -2,8 +2,8 @@
 
 import { MessageSquare } from 'lucide-react';
 import Link from 'next/link';
-import { useChats } from '@/hooks/useChatHooks';
 import { useSession } from 'next-auth/react';
+import { useChats } from '@/hooks/useChatHooks';
 
 export default function ChatList() {
   const { data: chats, isLoading } = useChats();
@@ -32,7 +32,8 @@ export default function ChatList() {
     <div className="flex-1 overflow-y-auto px-2 space-y-1">
       {chats.map((chat) => {
         const lastMessage = chat.messages[0];
-        const isUnread = lastMessage && !lastMessage.isRead && lastMessage.senderId !== session?.user?.id;
+        const isUnread =
+          lastMessage && !lastMessage.isRead && lastMessage.senderId !== session?.user?.id;
 
         return (
           <Link
@@ -56,7 +57,7 @@ export default function ChatList() {
                 <p className="text-[11px] text-gray-500 truncate min-w-0">
                   {lastMessage?.content || 'Немає повідомлень'}
                 </p>
-                <p 
+                <p
                   className="text-[10px] text-gray-500 truncate uppercase tracking-wider font-semibold shrink-0"
                   suppressHydrationWarning
                 >

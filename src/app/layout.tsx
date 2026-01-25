@@ -2,10 +2,11 @@ import '@/wdyr';
 import type { Metadata } from 'next';
 import { Geist, Geist_Mono } from 'next/font/google';
 import { auth } from '@/auth';
-import Navbar from '@/components/layout/Navbar';
-import Sidebar from '@/components/sidebar/Sidebar';
 import AuthProvider from '@/components/auth/AuthProvider';
+import RealtimePresence from '@/components/realtime/RealtimePresence';
+import Navbar from '@/components/layout/Navbar';
 import Providers from '@/components/Providers';
+import Sidebar from '@/components/sidebar/Sidebar';
 import './globals.css';
 
 const geistSans = Geist({
@@ -38,6 +39,7 @@ export default async function RootLayout({
       >
         <Providers>
           <AuthProvider>
+            <RealtimePresence />
             {/* Передаємо юзера в Навбар через пропси */}
             <Navbar user={session?.user} />
 

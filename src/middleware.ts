@@ -1,5 +1,5 @@
-import { auth } from '@/auth';
 import { NextResponse } from 'next/server';
+import { auth } from '@/auth';
 
 export default auth((req) => {
   const isLoggedIn = !!req.auth;
@@ -9,7 +9,7 @@ export default auth((req) => {
     // Використовуємо NextResponse для стабільності в Next.js
     return NextResponse.redirect(new URL('/', req.nextUrl));
   }
-  
+
   return NextResponse.next();
 });
 
