@@ -1,27 +1,10 @@
 'use client';
 
-import { useState, useCallback } from 'react';
 import { supabase } from '@/lib/supabase';
 import type { Attachment } from '@/types';
 import imageCompression from 'browser-image-compression';
-import { z } from 'zod';
-
-const MAX_FILE_SIZE = 10 * 1024 * 1024; // 10MB
-const ALLOWED_MIME_TYPES = [
-  'image/jpeg',
-  'image/png',
-  'image/gif',
-  'image/webp',
-  'application/pdf',
-  'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
-];
-
-const fileSchema = z.object({
-  size: z.number().max(MAX_FILE_SIZE, 'File size must be less than 10MB'),
-  type: z.string().refine((type) => ALLOWED_MIME_TYPES.includes(type), {
-    message: 'File type not allowed',
-  }),
-});
+import { useSession } from 'next-auth/react';
+import { useCallback, useState } from 'react';
 
 export interface PendingAttachment extends Attachment {
   file: File;
@@ -32,112 +15,106 @@ export interface PendingAttachment extends Attachment {
 
 export function useAttachment(chatId: string) {
   const [attachments, setAttachments] = useState<PendingAttachment[]>([]);
+  const { data: session } = useSession(); // status прибрано, бо достатньо перевірки session
 
   const uploadFile = useCallback(async (file: File) => {
     const id = crypto.randomUUID();
-    const type: 'image' | 'file' = file.type.startsWith('image/') ? 'image' : 'file';
     const previewUrl = URL.createObjectURL(file);
+    const isImage = file.type.startsWith('image/');
     
     const newAttachment: PendingAttachment = {
       id,
-      type,
+      type: isImage ? 'image' : 'file',
       url: '',
-      metadata: {
-        name: file.name,
-        size: file.size,
-      },
+      metadata: { name: file.name, size: file.size },
       file,
       previewUrl,
-      uploading: true,
+      uploading: true
     };
 
     setAttachments((prev) => [...prev, newAttachment]);
 
     try {
-      // Validate file
-      fileSchema.parse(file);
-
-      let fileToUpload = file;
-
-      // Compress images
-      if (type === 'image') {
-        const options = {
-          maxSizeMB: 1,
-          maxWidthOrHeight: 1920,
-          useWebWorker: true,
-        };
-        fileToUpload = await imageCompression(file, options);
+      // Перевірка авторизації через сесію
+      if (!session?.user) {
+        throw new Error("You must be logged in to upload files.");
       }
 
-      const filePath = `${chatId}/${id}-${file.name}`;
-      const { error } = await supabase.storage
-        .from('chat-attachments')
-        .upload(filePath, fileToUpload);
+      // 1. Очищення chatId та генерація безпечного шляху (тільки ASCII)
+      const cleanChatId = chatId.replace(/[^a-zA-Z0-9-]/g, 'x');
+      const extension = file.name.split('.').pop()?.replace(/[^a-zA-Z0-9]/g, '') || 'bin';
+      const safePath = `${cleanChatId}/${id}.${extension}`;
 
-      if (error) throw error;
+      // 2. Обробка зображення
+      let fileToProcess: File | Blob = file;
+      if (isImage) {
+        try {
+          fileToProcess = await imageCompression(file, { 
+            maxSizeMB: 1, 
+            maxWidthOrHeight: 1920,
+            useWebWorker: true 
+          });
+        } catch (e) {
+          fileToProcess = file;
+        }
+      }
 
-      const { data: { publicUrl } } = supabase.storage
-        .from('chat-attachments')
-        .getPublicUrl(filePath);
+      // 3. Конвертація в Base64 для обходу ByteString Error
+      const reader = new FileReader();
+      const base64String = await new Promise<string>((resolve, reject) => {
+        reader.onload = () => {
+          const result = reader.result as string;
+          resolve(result.split(',')[1]); // Беремо тільки чистий Base64 без префікса
+        };
+        reader.onerror = reject;
+        reader.readAsDataURL(fileToProcess);
+      });
+
+      // 4. Відправка через API Route
+      const response = await fetch('/api/upload', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          base64: base64String,
+          contentType: file.type,
+          path: safePath,
+        }),
+      });
+
+      const result = await response.json();
+
+      if (!response.ok || result.error) {
+        throw new Error(result.error || 'Upload failed');
+      }
 
       setAttachments((prev) =>
-        prev.map((a) =>
-          a.id === id ? { ...a, url: publicUrl, uploading: false } : a
-        )
+        prev.map((a) => a.id === id ? { ...a, url: result.url as string, uploading: false } : a)
       );
 
-      // Extract image dimensions if applicable
-      if (type === 'image') {
-        const img = new Image();
-        img.src = previewUrl;
-        img.onload = () => {
-          setAttachments((prev) =>
-            prev.map((a) =>
-              a.id === id
-                ? {
-                    ...a,
-                    metadata: {
-                      ...a.metadata,
-                      width: img.width,
-                      height: img.height,
-                    },
-                  }
-                : a
-            )
-          );
-        };
-      }
-    } catch (err: unknown) {
-      console.error('Upload error:', err);
-      const message = err instanceof Error ? err.message : 'Upload failed';
+    } catch (err: any) {
+      console.error('[useAttachment] Error:', err);
       setAttachments((prev) =>
-        prev.map((a) =>
-          a.id === id ? { ...a, uploading: false, error: message } : a
-        )
+        prev.map((a) => a.id === id ? { ...a, uploading: false, error: err.message || 'Upload failed' } : a)
       );
     }
-  }, [chatId]);
+    // status видалено з залежностей, залишаємо тільки chatId та session
+  }, [chatId, session]);
 
   const removeAttachment = useCallback(async (id: string) => {
     const attachment = attachments.find((a) => a.id === id);
     if (!attachment) return;
 
-    // Remove from UI state
     setAttachments((prev) => prev.filter((a) => a.id !== id));
-    
-    // Revoke object URL to free memory
     URL.revokeObjectURL(attachment.previewUrl);
 
-    // If uploaded, try to delete from Supabase
     if (attachment.url) {
-      const urlParts = attachment.url.split('/');
-      const fileName = urlParts[urlParts.length - 1];
-      const filePath = `${chatId}/${fileName}`;
-      
+      const fileName = attachment.url.split('/').pop();
       try {
-        await supabase.storage.from('chat-attachments').remove([filePath]);
+        await supabase.storage.from('chat-attachments').remove([`${chatId}/${fileName}`]);
       } catch (err) {
-        console.error('Failed to delete file from storage:', err);
+        console.error('Delete error:', err);
       }
     }
   }, [attachments, chatId]);
@@ -149,11 +126,11 @@ export function useAttachment(chatId: string) {
     setAttachments([]);
   }, [attachments]);
 
-  return {
-    attachments,
-    uploadFile,
-    removeAttachment,
-    clearAttachments,
-    isUploading: attachments.some((a) => a.uploading),
+  return { 
+    attachments, 
+    uploadFile, 
+    removeAttachment, 
+    clearAttachments, 
+    isUploading: attachments.some(a => a.uploading) 
   };
 }
