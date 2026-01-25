@@ -34,6 +34,7 @@ export interface Message {
     content: string;
   } | null;
   replyTo?: Message;
+  isOptimistic?: boolean;
 }
 
 export interface Chat {

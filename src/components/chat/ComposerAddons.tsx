@@ -23,10 +23,10 @@ export function ComposerAddons({
   if (!replyTo && attachments.length === 0) return null;
 
   return (
-    <div className="px-4 py-2 border-t border-white/10 bg-white/5 backdrop-blur-sm space-y-2">
+    <div className="px-4 py-3 border-t border-white/5 backdrop-blur-md bg-white/5 space-y-2" style={{ willChange: 'transform' }}>
       {/* Reply Preview */}
       {replyTo && (
-        <div className="flex items-center gap-3 py-1 border-s-4 border-blue-500 px-3 bg-blue-500/5 rounded-e-lg relative group">
+        <div className="flex items-center gap-3 py-2 border-s-4 border-blue-500 px-3 bg-blue-500/5 rounded-e-lg relative group">
           <div className="flex-1 min-w-0">
             <p className="text-xs font-semibold text-blue-400">
               {replyTo.senderId === 'me' ? 'Reply to yourself' : `Reply to ${otherParticipantName || 'user'}`}
@@ -36,7 +36,7 @@ export function ComposerAddons({
           <button
             type="button"
             onClick={onReplyCancel}
-            className="p-1 hover:bg-white/10 rounded-full text-gray-400 transition-colors"
+            className="p-1 hover:bg-white/10 rounded-full text-gray-400 transition-colors duration-300"
           >
             <X size={16} />
           </button>

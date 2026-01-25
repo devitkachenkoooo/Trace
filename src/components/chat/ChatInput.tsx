@@ -5,17 +5,25 @@ import { useEffect, useRef, useState } from 'react';
 import { useSendMessage } from '@/hooks/useChatHooks';
 import { useAttachment } from '@/hooks/useAttachment';
 import { ComposerAddons } from './ComposerAddons';
-import { useQueryClient } from '@tanstack/react-query';
+import { type InfiniteData, useQueryClient } from '@tanstack/react-query';
 import type { Message } from '@/types';
+import { useMemo } from 'react';
 
 interface ChatInputProps {
   chatId: string;
   setTyping: (typing: boolean) => void;
   replyToId?: string | null;
   onReplyCancel?: () => void;
+  onMessageSent?: () => void;
 }
 
-export default function ChatInput({ chatId, setTyping, replyToId, onReplyCancel }: ChatInputProps) {
+export default function ChatInput({ 
+  chatId, 
+  setTyping, 
+  replyToId, 
+  onReplyCancel,
+  onMessageSent 
+}: ChatInputProps) {
   const [content, setContent] = useState('');
   const { attachments, uploadFile, removeAttachment, clearAttachments, isUploading } = useAttachment(chatId);
   const sendMessage = useSendMessage(chatId);
@@ -23,9 +31,12 @@ export default function ChatInput({ chatId, setTyping, replyToId, onReplyCancel 
   const fileInputRef = useRef<HTMLInputElement>(null);
   const queryClient = useQueryClient();
 
-  const replyToMessage = replyToId 
-    ? (queryClient.getQueryData<Message[]>(['messages', chatId])?.find(m => m.id === replyToId) || null)
-    : null;
+  const replyToMessage = useMemo(() => {
+    if (!replyToId) return null;
+    const data = queryClient.getQueryData<InfiniteData<Message[], Date | undefined>>(['messages', chatId]);
+    if (!data) return null;
+    return data.pages.flat().find(m => m.id === replyToId) || null;
+  }, [replyToId, chatId, queryClient]);
 
   const handleSubmit = async (e?: React.FormEvent) => {
     e?.preventDefault();
@@ -49,6 +60,7 @@ export default function ChatInput({ chatId, setTyping, replyToId, onReplyCancel 
         replyToId: replyToId || undefined,
         attachments: attachmentsBackup.map(({ id, type, url, metadata }) => ({ id, type, url, metadata }))
       });
+      if (onMessageSent) onMessageSent();
     } catch (error) {
       console.error('Failed to send message:', error);
       // Restore state on error
@@ -89,7 +101,7 @@ export default function ChatInput({ chatId, setTyping, replyToId, onReplyCancel 
   const isButtonVisible = content.trim().length > 0 || attachments.length > 0;
 
   return (
-    <div className="flex flex-col border-t border-white/10">
+    <div className="flex flex-col border-t border-white/10 backdrop-blur-md bg-white/5" style={{ willChange: 'transform' }}>
       <ComposerAddons
         attachments={attachments}
         onAttachmentRemove={removeAttachment}
@@ -109,7 +121,7 @@ export default function ChatInput({ chatId, setTyping, replyToId, onReplyCancel 
         <button
           type="button"
           onClick={() => fileInputRef.current?.click()}
-          className="p-3 rounded-full text-gray-400 hover:bg-white/5 transition-all"
+          className="p-3 rounded-full text-gray-400 hover:bg-white/10 transition-all duration-300"
         >
           <Paperclip size={20} />
         </button>
@@ -123,7 +135,7 @@ export default function ChatInput({ chatId, setTyping, replyToId, onReplyCancel 
             onKeyDown={handleKeyDown}
             placeholder="Type a message..."
             disabled={sendMessage.isPending}
-            className="w-full bg-white/5 border border-white/10 rounded-full px-5 py-3 text-sm text-white focus:outline-none focus:border-blue-500 transition-all disabled:opacity-50"
+            className="w-full bg-white/5 border border-white/10 rounded-full px-5 py-3 text-sm text-white placeholder:text-gray-500 focus:outline-none focus:border-blue-500 transition-all duration-300 disabled:opacity-50"
           />
         </div>
 
@@ -131,7 +143,7 @@ export default function ChatInput({ chatId, setTyping, replyToId, onReplyCancel 
           <button
             type="submit"
             disabled={sendMessage.isPending || isUploading || (!content.trim() && attachments.length === 0)}
-            className="p-3 rounded-full bg-blue-600 text-white hover:bg-blue-500 disabled:opacity-50 disabled:hover:bg-blue-600 transition-all shadow-lg shadow-blue-600/20"
+            className="p-3 rounded-full bg-blue-600 text-white hover:bg-blue-500 disabled:opacity-50 disabled:hover:bg-blue-600 transition-all duration-300 shadow-lg shadow-blue-600/20"
           >
             <Send size={20} className={sendMessage.isPending || isUploading ? 'animate-pulse' : ''} />
           </button>

@@ -29,7 +29,7 @@ export default function SearchInput() {
 
   return (
     <div className="relative group px-4">
-      <div className="absolute left-7 top-1/2 -translate-y-1/2 text-gray-400 group-focus-within:text-white transition-colors">
+      <div className="absolute left-7 top-1/2 -translate-y-1/2 text-gray-400 group-focus-within:text-white transition-colors duration-300">
         <Search className="w-4 h-4" />
       </div>
       <input
@@ -37,7 +37,7 @@ export default function SearchInput() {
         value={query}
         onChange={(e) => setQuery(e.target.value)}
         placeholder="Пошук контактів..."
-        className="w-full bg-white/5 border border-white/10 rounded-xl py-2 pl-10 pr-4 text-sm focus:outline-none focus:ring-1 focus:ring-white/20 transition-all placeholder:text-gray-500"
+        className="w-full bg-white/5 border border-white/5 rounded-xl py-2 pl-10 pr-4 text-sm focus:outline-none focus:ring-1 focus:ring-white/20 transition-all duration-300 placeholder:text-gray-500"
       />
     </div>
   );

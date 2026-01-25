@@ -1,12 +1,14 @@
 import type { RealtimeChannel } from '@supabase/supabase-js';
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { type InfiniteData, useInfiniteQuery, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useSession } from 'next-auth/react';
 import { useEffect, useRef, useState } from 'react';
+import type { VirtuosoHandle } from 'react-virtuoso';
 import {
   deleteChatAction,
   deleteMessageAction,
   getChatsAction,
   getFullChatAction,
+  getMessagesAction,
   markAsReadAction,
   searchUsersAction,
   sendMessageAction,
@@ -71,19 +73,20 @@ export function useMessages(chatId: string, currentUserId: string | undefined) {
           if (payload.eventType === 'INSERT') {
             const raw = payload.new as DbMessage;
 
-            queryClient.setQueryData<(Message & { isOptimistic?: boolean })[]>(['messages', chatId], (old) => {
-              const currentMessages = old || [];
+            queryClient.setQueryData<InfiniteData<Message[], Date | undefined>>(['messages', chatId], (old) => {
+              if (!old) return old;
               
-              // 1. Уникаємо дублікатів (якщо це наше ж повідомлення вже додане оптимістично)
-              if (currentMessages.some((m) => m.id === raw.id)) return currentMessages;
+              // 1. Уникаємо дублікатів
+              const allMessages = old.pages.flat();
+              if (allMessages.some((m) => m.id === raw.id)) return old;
 
-              // 2. МАГІЯ РЕПЛАЮ: Шукаємо повідомлення, на яке відповіли, у локальному кеші юзера
+              // 2. МАГІЯ РЕПЛАЮ
               const parentId = raw.reply_to_id || raw.replyToId;
               const foundParent = parentId 
-                ? (currentMessages.find(m => m.id === parentId) as Message | undefined)
+                ? (allMessages.find(m => m.id === parentId) as Message | undefined)
                 : undefined;
 
-              const newMessage: Message & { isOptimistic?: boolean } = {
+              const newMessage: Message = {
                 id: raw.id,
                 content: raw.content || '',
                 attachments: raw.attachments || [],
@@ -96,29 +99,48 @@ export function useMessages(chatId: string, currentUserId: string | undefined) {
                 isOptimistic: false,
               };
 
-              // 3. Перевіряємо, чи потрібно замінити оптимістичне повідомлення (наше власне)
-              const matchIndex = currentMessages.findIndex(
+              // 3. Перевіряємо заміну оптимістичного
+              const matchIndex = allMessages.findIndex(
                 (m) =>
                   m.isOptimistic &&
                   (m.senderId === newMessage.senderId || m.senderId === currentUserId) &&
                   m.content.trim() === newMessage.content.trim(),
               );
 
+              // Клонуємо структуру
+              const newPages = [...old.pages];
+              
               if (matchIndex !== -1) {
-                const updated = [...currentMessages];
-                updated[matchIndex] = newMessage;
-                return updated;
+                // Знаходимо в якій сторінці це повідомлення
+                let currentIndex = 0;
+                for (let i = 0; i < newPages.length; i++) {
+                  if (matchIndex >= currentIndex && matchIndex < currentIndex + newPages[i].length) {
+                    const pageCopy = [...newPages[i]];
+                    pageCopy[matchIndex - currentIndex] = newMessage;
+                    newPages[i] = pageCopy;
+                    break;
+                  }
+                  currentIndex += newPages[i].length;
+                }
+              } else {
+                // Додаємо в кінець ПЕРШОЇ сторінки
+                const firstPage = [...(newPages[0] || [])];
+                firstPage.push(newMessage);
+                newPages[0] = firstPage;
               }
 
-              // Додаємо нове повідомлення на початок (оскільки flex-col-reverse)
-              return [newMessage, ...currentMessages];
+              return { ...old, pages: newPages };
             });
 
             queryClient.invalidateQueries({ queryKey: ['chats'] });
           } else if (payload.eventType === 'DELETE') {
             const deletedId = payload.old.id;
-            queryClient.setQueryData<(Message & { isOptimistic?: boolean })[]>(['messages', chatId], (old) => {
-              return old ? old.filter((m) => m.id !== deletedId) : [];
+            queryClient.setQueryData<InfiniteData<Message[], Date | undefined>>(['messages', chatId], (old) => {
+              if (!old) return old;
+              return {
+                ...old,
+                pages: old.pages.map(page => page.filter(m => m.id !== deletedId))
+              };
             });
           }
         },
@@ -169,39 +191,27 @@ export function useMessages(chatId: string, currentUserId: string | undefined) {
     }
   };
 
-  const query = useQuery({
+  const query = useInfiniteQuery<Message[], Error, InfiniteData<Message[], Date | undefined>, string[], Date | undefined>({
     queryKey: ['messages', chatId],
-    queryFn: async () => {
-      const result = await getFullChatAction(chatId);
-      
-      if (!result.success || !result.data) {
-        throw new Error(result.error || 'Failed to fetch messages');
-      }
-
-      // Мапимо дані з бази в наш формат
-      return result.data.messages.map((m: DbMessage & { 
-        replyDetails?: { 
-          id: string; 
-          sender: { name?: string | null }; 
-          content: string 
-        } | null 
-      }) => ({
-        ...m,
-        id: m.id,
-        content: m.content,
-        attachments: m.attachments || [],
-        isRead: !!(m.is_read || m.isRead),
-        senderId: String(m.sender_id || m.senderId || ''),
-        chatId: String(m.chat_id || m.chatId || ''),
-        replyToId: (m.reply_to_id || m.replyToId || undefined) as string | undefined,
-        createdAt: new Date(m.created_at || m.createdAt || Date.now()),
-        replyDetails: m.replyDetails,
-      })) as (Message & { isOptimistic?: boolean })[];
+    queryFn: async ({ pageParam }) => {
+      const result = await getMessagesAction(chatId, pageParam);
+      if (!result.success) throw new Error(result.error);
+      return result.data as Message[];
+    },
+    initialPageParam: undefined,
+    getNextPageParam: (lastPage) => {
+      if (lastPage.length < 50) return undefined;
+      return lastPage[0]?.createdAt ? new Date(lastPage[0].createdAt) : undefined;
     },
     enabled: !!chatId,
   });
 
-  return { ...query, isTyping, setTyping };
+  // Flattened messages for the UI
+  // Note: Pages are [NewestPage, OlderPage, ...]. Each page is [OldestInPage, ..., NewestInPage].
+  // So we need to reverse the pages order and then flatten.
+  const allMessages = query.data?.pages ? [...query.data.pages].reverse().flat() : [];
+
+  return { ...query, messages: allMessages, isTyping, setTyping };
 }
 
 export function useDeleteMessage(chatId: string) {
@@ -210,17 +220,21 @@ export function useDeleteMessage(chatId: string) {
     mutationFn: (messageId: string) => deleteMessageAction(messageId),
     onMutate: async (messageId) => {
       await queryClient.cancelQueries({ queryKey: ['messages', chatId] });
-      const previousMessages = queryClient.getQueryData<(Message & { isOptimistic?: boolean })[]>(['messages', chatId]);
+      const previousData = queryClient.getQueryData<InfiniteData<Message[], Date | undefined>>(['messages', chatId]);
 
-      queryClient.setQueryData<(Message & { isOptimistic?: boolean })[]>(['messages', chatId], (old) => {
-        return old ? old.filter((m) => m.id !== messageId) : [];
+      queryClient.setQueryData<InfiniteData<Message[], Date | undefined>>(['messages', chatId], (old) => {
+        if (!old) return old;
+        return {
+          ...old,
+          pages: old.pages.map(page => page.filter(m => m.id !== messageId))
+        };
       });
 
-      return { previousMessages };
+      return { previousData };
     },
     onError: (_err, _variables, context) => {
-      if (context?.previousMessages) {
-        queryClient.setQueryData(['messages', chatId], context.previousMessages);
+      if (context?.previousData) {
+        queryClient.setQueryData(['messages', chatId], context.previousData);
       }
     },
     onSettled: () => {
@@ -254,17 +268,54 @@ export function useDeleteChat() {
   });
 }
 
-export function useScrollToMessage() {
+export function useScrollToMessage(
+  virtuosoRef: React.RefObject<VirtuosoHandle | null>,
+  messages: Message[],
+  fetchNextPage: () => void,
+  hasNextPage: boolean
+) {
   const [highlightedId, setHighlightedId] = useState<string | null>(null);
+  const scrollTargetId = useRef<string | null>(null);
+
+  useEffect(() => {
+    if (scrollTargetId.current) {
+      const index = messages.findIndex(m => m.id === scrollTargetId.current);
+      if (index !== -1) {
+        // Delay a bit to ensure the list is ready or to handle potential race conditions
+        setTimeout(() => {
+          virtuosoRef.current?.scrollToIndex({ 
+            index, 
+            align: 'center', 
+            behavior: 'smooth' 
+          });
+          setHighlightedId(scrollTargetId.current);
+          scrollTargetId.current = null;
+          setTimeout(() => setHighlightedId(null), 3000); // 3s highlight
+        }, 100);
+      } else if (hasNextPage) {
+        fetchNextPage();
+      } else {
+        console.warn('Message not found even after fetching all pages');
+        scrollTargetId.current = null;
+      }
+    }
+  }, [messages, hasNextPage, fetchNextPage, virtuosoRef]);
 
   const scrollToMessage = (messageId: string) => {
-    const element = document.getElementById(`message-${messageId}`);
-    if (element) {
-      element.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    const index = messages.findIndex(m => m.id === messageId);
+    if (index !== -1) {
+      virtuosoRef.current?.scrollToIndex({ 
+        index, 
+        align: 'center', 
+        behavior: 'smooth' 
+      });
       setHighlightedId(messageId);
-      setTimeout(() => setHighlightedId(null), 2000);
+      setTimeout(() => setHighlightedId(null), 3000);
+    } else if (hasNextPage) {
+      scrollTargetId.current = messageId;
+      fetchNextPage();
     } else {
-      console.warn('Message not found in DOM');
+      console.warn('Message not found');
     }
   };
 
@@ -301,9 +352,9 @@ export function useSendMessage(chatId: string) {
     }) => sendMessageAction(chatId, content, replyToId, attachments),
     onMutate: async ({ content, replyToId, attachments = [] }) => {
       await queryClient.cancelQueries({ queryKey: ['messages', chatId] });
-      const previousMessages = queryClient.getQueryData<(Message & { isOptimistic?: boolean })[]>(['messages', chatId]);
+      const previousData = queryClient.getQueryData<InfiniteData<Message[], Date | undefined>>(['messages', chatId]);
 
-      const optimisticMessage: Message & { isOptimistic?: boolean } = {
+      const optimisticMessage: Message = {
         id: crypto.randomUUID(),
         chatId,
         senderId: session?.user?.id || 'me',
@@ -315,16 +366,20 @@ export function useSendMessage(chatId: string) {
         isOptimistic: true,
       };
 
-      queryClient.setQueryData<(Message & { isOptimistic?: boolean })[]>(['messages', chatId], (old) => [
-        optimisticMessage,
-        ...(old || []),
-      ]);
+      queryClient.setQueryData<InfiniteData<Message[], Date | undefined>>(['messages', chatId], (old) => {
+        if (!old) return { pages: [[optimisticMessage]], pageParams: [undefined] };
+        const newPages = [...old.pages];
+        const firstPage = [...(newPages[0] || [])];
+        firstPage.push(optimisticMessage); // Newest message goes to the end of the first page (chronological)
+        newPages[0] = firstPage;
+        return { ...old, pages: newPages };
+      });
 
-      return { previousMessages };
+      return { previousData };
     },
     onError: (_err, _variables, context) => {
-      if (context?.previousMessages) {
-        queryClient.setQueryData(['messages', chatId], context.previousMessages);
+      if (context?.previousData) {
+        queryClient.setQueryData(['messages', chatId], context.previousData);
       }
     },
     onSettled: () => {

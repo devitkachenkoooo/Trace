@@ -37,13 +37,13 @@ export default function SidebarShell() {
   };
 
   return (
-    <aside className="sticky top-16 h-[calc(100vh-64px)] w-80 bg-black border-r border-white/10 flex flex-col z-40 shrink-0">
+    <aside className="sticky top-16 h-[calc(100vh-64px)] w-80 backdrop-blur-md bg-black/40 border-r border-white/10 flex flex-col z-40 shrink-0" style={{ willChange: 'transform' }}>
       {/* Header */}
       <div className="pt-8 pb-4">
         <div className="px-6 mb-6 flex items-center justify-between">
           <button
             type="button"
-            className="p-2 hover:bg-white/5 rounded-lg text-gray-400 hover:text-white transition-colors"
+            className="p-2 hover:bg-white/10 rounded-lg text-gray-400 hover:text-white transition-colors duration-300"
           >
             <Menu className="w-5 h-5" />
           </button>
@@ -55,7 +55,7 @@ export default function SidebarShell() {
             <button
               type="button"
               onClick={() => setTab('chats')}
-              className={`flex-1 flex items-center justify-center gap-2 py-2 rounded-lg text-xs font-bold transition-all ${
+              className={`flex-1 flex items-center justify-center gap-2 py-2 rounded-lg text-xs font-bold transition-all duration-300 ${
                 tab === 'chats'
                   ? 'bg-white text-black shadow-lg shadow-white/5'
                   : 'text-gray-400 hover:text-white'
@@ -67,7 +67,7 @@ export default function SidebarShell() {
             <button
               type="button"
               onClick={() => setTab('contacts')}
-              className={`flex-1 flex items-center justify-center gap-2 py-2 rounded-lg text-xs font-bold transition-all ${
+              className={`flex-1 flex items-center justify-center gap-2 py-2 rounded-lg text-xs font-bold transition-all duration-300 ${
                 tab === 'contacts'
                   ? 'bg-white text-black shadow-lg shadow-white/5'
                   : 'text-gray-400 hover:text-white'
@@ -91,7 +91,7 @@ export default function SidebarShell() {
         {tab === 'chats' ? (
           <>
             <div className="px-6 mb-2">
-              <h2 className="text-[10px] font-bold uppercase tracking-widest text-gray-500">
+              <h2 className="text-[10px] font-bold uppercase tracking-widest text-gray-500 letter-spacing-wide">
                 Ваші діалоги
               </h2>
             </div>

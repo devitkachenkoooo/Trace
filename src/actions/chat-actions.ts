@@ -1,6 +1,6 @@
 'use server';
 
-import { and, desc, eq, ilike, ne, or } from 'drizzle-orm';
+import { and, desc, eq, ilike, lt, ne, or } from 'drizzle-orm';
 import { revalidatePath } from 'next/cache';
 import { redirect } from 'next/navigation';
 import { auth } from '@/auth';
@@ -22,6 +22,7 @@ export async function getFullChatAction(chatId: string) {
         user: true,
         messages: {
           orderBy: [desc(messages.createdAt)],
+          limit: 50,
           with: {
             replyTo: {
               with: { sender: true }
@@ -36,7 +37,7 @@ export async function getFullChatAction(chatId: string) {
     const otherUser = chat.userId === session.user.id ? chat.recipient : chat.user;
     
     // Форматуємо replyDetails прямо тут
-    const messagesWithReplies = chat.messages.map(msg => ({
+    const messagesWithReplies = chat.messages.reverse().map(msg => ({
       ...msg,
       replyDetails: msg.replyTo ? {
         id: msg.replyTo.id,
@@ -55,6 +56,45 @@ export async function getFullChatAction(chatId: string) {
     };
   } catch (error) {
     return { success: false, error: 'Failed' };
+  }
+}
+
+export async function getMessagesAction(
+  chatId: string,
+  cursor?: Date,
+  limit = 50
+): Promise<{ success: true; data: Message[] } | { success: false; error: string }> {
+  const session = await auth();
+  if (!session?.user?.id) return { success: false, error: 'Unauthorized' };
+
+  try {
+    const fetchedMessages = await db.query.messages.findMany({
+      where: and(
+        eq(messages.chatId, chatId),
+        cursor ? lt(messages.createdAt, cursor) : undefined
+      ),
+      orderBy: [desc(messages.createdAt)],
+      limit,
+      with: {
+        replyTo: {
+          with: { sender: true }
+        }
+      }
+    });
+
+    const messagesWithReplies = fetchedMessages.reverse().map(msg => ({
+      ...msg,
+      replyDetails: msg.replyTo ? {
+        id: msg.replyTo.id,
+        content: msg.replyTo.content,
+        sender: { name: msg.replyTo.sender?.name || 'Unknown' }
+      } : null
+    }));
+
+    return { success: true, data: messagesWithReplies as unknown as Message[] };
+  } catch (error) {
+    console.error('Error fetching messages:', error);
+    return { success: false, error: 'Failed to fetch messages' };
   }
 }
 
