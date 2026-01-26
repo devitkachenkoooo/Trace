@@ -2,10 +2,6 @@
   "name": "my-messenger",
   "version": "0.1.0",
   "private": true,
-  "engines": {
-    "node": ">=22.22.0",
-    "pnpm": ">=10.28.1"
-  },
   "scripts": {
     "preinstall": "npx only-allow pnpm",
     "dev": "next dev",
