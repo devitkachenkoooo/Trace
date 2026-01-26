@@ -27,7 +27,7 @@ export default function ChatLayoutWrapper({
     setIsSidebarOpen(false);
   }, [pathname]);
 
-  // 2. СЛУХАЧ ПОДІЇ: Дозволяє будь-якому компоненту (н-р ChatList) закрити сайдбар
+  // 2. СЛУХАЧ ПОДІЇ: Дозволяє будь-якому компоненту закрити сайдбар
   useEffect(() => {
     const handleClose = () => setIsSidebarOpen(false);
     window.addEventListener('close-mobile-sidebar', handleClose);
@@ -41,38 +41,43 @@ export default function ChatLayoutWrapper({
       <Navbar user={user} onMenuClick={toggleSidebar} />
       
       <div className="flex flex-1 pt-16 relative overflow-hidden">
-        {/* Mobile Backdrop - ПІДНЯЛИ Z-INDEX ТА ДОДАЛИ КЛАСИ */}
-        <button
-          type="button"
-          id="sidebar-overlay"
-          className={`
-            fixed inset-0 bg-black/60 backdrop-blur-sm lg:hidden
-            transition-opacity duration-300
-            z-[80] 
-            ${isSidebarOpen ? 'opacity-100 pointer-events-auto' : 'opacity-0 pointer-events-none'}
-          `}
-          onClick={() => setIsSidebarOpen(false)}
-          onKeyDown={(e) => {
-            if (e.key === 'Escape') setIsSidebarOpen(false);
-          }}
-          aria-label="Close Sidebar"
-        />
+        {/* Рендеримо оверлей та контейнер сайдбара тільки якщо є користувач */}
+        {user && (
+          <>
+            {/* Mobile Backdrop */}
+            <button
+              type="button"
+              id="sidebar-overlay"
+              className={`
+                fixed inset-0 bg-black/60 backdrop-blur-sm lg:hidden
+                transition-opacity duration-300
+                z-[80] 
+                ${isSidebarOpen ? 'opacity-100 pointer-events-auto' : 'opacity-0 pointer-events-none'}
+              `}
+              onClick={() => setIsSidebarOpen(false)}
+              onKeyDown={(e) => {
+                if (e.key === 'Escape') setIsSidebarOpen(false);
+              }}
+              aria-label="Close Sidebar"
+            />
 
-        {/* Sidebar Container - ПІДНЯЛИ Z-INDEX ЩОБ БУВ НАД ОВЕРЛЕЄМ */}
-        <div
-          className={`
-            fixed lg:static inset-y-0 left-0 
-            z-[90] 
-            transform ${isSidebarOpen ? 'translate-x-0' : '-translate-x-full lg:translate-x-0'}
-            transition-transform duration-300 ease-in-out
-            w-80 h-[calc(100dvh-64px)] mt-16 lg:mt-0
-            bg-black lg:bg-transparent
-          `}
-        >
-          {sidebar}
-        </div>
+            {/* Sidebar Container */}
+            <div
+              className={`
+                fixed lg:static inset-y-0 left-0 
+                z-[90] 
+                transform ${isSidebarOpen ? 'translate-x-0' : '-translate-x-full lg:translate-x-0'}
+                transition-transform duration-300 ease-in-out
+                w-80 h-[calc(100dvh-64px)] mt-16 lg:mt-0
+                bg-black lg:bg-transparent
+              `}
+            >
+              {sidebar}
+            </div>
+          </>
+        )}
 
-        {/* Main Content */}
+        {/* Main Content - розтягується на всю ширину, якщо сайдбара немає */}
         <main className="flex-1 w-full min-w-0 relative z-0">
           {children}
         </main>
