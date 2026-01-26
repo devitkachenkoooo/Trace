@@ -41,5 +41,13 @@ export default auth((req) => {
 });
 
 export const config = {
-  matcher: ['/chat/:path*', '/api/:path*'],
+  matcher: [
+    /*
+     * Виключаємо:
+     * - _next/static (статичні файли)
+     * - _next/image (оптимізація зображень)
+     * - favicon.ico (іконка)
+     */
+    '/((?!_next/static|_next/image|favicon.ico).*)',
+  ],
 };
