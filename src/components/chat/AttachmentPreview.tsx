@@ -46,7 +46,7 @@ export function AttachmentPreview({ attachment, onRemove }: AttachmentPreviewPro
       <button
         type="button"
         onClick={() => onRemove(attachment.id)}
-        className="absolute top-1 right-1 p-1 rounded-full bg-black/50 text-white opacity-0 group-hover:opacity-100 transition-opacity hover:bg-red-500"
+        className="absolute top-1 right-1 p-1 rounded-full bg-black/50 text-white opacity-100 lg:opacity-0 lg:group-hover:opacity-100 transition-opacity hover:bg-red-500"
       >
         <X size={12} />
       </button>

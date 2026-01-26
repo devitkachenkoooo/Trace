@@ -21,7 +21,7 @@ interface NavbarProps {
 
 export default function Navbar({ user, onMenuClick }: NavbarProps) {
   return (
-    <nav className="fixed top-0 left-0 right-0 z-50 flex items-center justify-between px-4 sm:px-6 py-4 border-b border-white/10 bg-black/50 backdrop-blur-md">
+    <nav className="fixed top-0 left-0 right-0 z-[800] flex items-center justify-between px-4 sm:px-6 py-4 border-b border-white/10 bg-black/50 backdrop-blur-lg">
       {/* Left: Menu & Logo */}
       <div className="flex items-center gap-2 sm:gap-4">
         {user && (

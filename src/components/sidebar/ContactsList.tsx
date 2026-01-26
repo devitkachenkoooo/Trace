@@ -85,7 +85,7 @@ export default function ContactsList({ query }: ContactsListProps) {
             <button
               type="button"
               onClick={() => getOrCreateChatAction(user.id)}
-              className="p-2 bg-white/5 hover:bg-white text-gray-400 hover:text-black rounded-lg transition-all opacity-0 group-hover:opacity-100"
+              className="p-2 bg-white/5 hover:bg-white text-gray-400 hover:text-black rounded-lg transition-all opacity-100 lg:opacity-0 lg:group-hover:opacity-100"
               title="Надіслати повідомлення"
             >
               <MessageSquarePlus className="w-4 h-4" />
