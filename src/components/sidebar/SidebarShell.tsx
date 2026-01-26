@@ -1,6 +1,6 @@
 'use client';
 
-import { Menu, MessageSquare, Users } from 'lucide-react';
+import { MessageSquare, Users } from 'lucide-react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { useSession } from 'next-auth/react';
 import { useEffect } from 'react';
@@ -37,17 +37,9 @@ export default function SidebarShell() {
   };
 
   return (
-    <aside className="sticky top-16 h-[calc(100vh-64px)] w-80 backdrop-blur-md bg-black/40 border-r border-white/10 flex flex-col z-40 shrink-0" style={{ willChange: 'transform' }}>
+    <aside className="h-screen lg:h-[calc(100vh-64px)] w-80 backdrop-blur-md bg-black/40 border-r border-white/10 flex flex-col z-40 shrink-0 overflow-hidden" style={{ willChange: 'transform' }}>
       {/* Header */}
-      <div className="pt-8 pb-4">
-        <div className="px-6 mb-6 flex items-center justify-between">
-          <button
-            type="button"
-            className="p-2 hover:bg-white/10 rounded-lg text-gray-400 hover:text-white transition-colors duration-300"
-          >
-            <Menu className="w-5 h-5" />
-          </button>
-        </div>
+      <div className="pt-6 pb-2 lg:pt-8 lg:pb-4">
 
         {/* View Toggle */}
         <div className="px-4 mb-6">

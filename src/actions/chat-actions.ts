@@ -6,6 +6,7 @@ import { redirect } from 'next/navigation';
 import { auth } from '@/auth';
 import { db } from '@/db';
 import { chats, messages, users } from '@/db/schema';
+import { supabaseService } from '@/lib/supabase';
 
 import type { Attachment, FullChat, Message, User } from '@/types';
 
@@ -248,7 +249,31 @@ export async function deleteMessageAction(
     if (!message) return { success: false, error: 'Message not found' };
     if (message.senderId !== session.user.id) return { success: false, error: 'Forbidden' };
 
-    await db.delete(messages).where(eq(messages.id, messageId));
+    // Media Cleanup
+    if (supabaseService && message.attachments && message.attachments.length > 0) {
+      const paths = message.attachments
+        .map((a) => {
+          const parts = a.url.split('/chat-attachments/');
+          return parts.length > 1 ? parts[1] : null;
+        })
+        .filter((p) => p !== null) as string[];
+
+      if (paths.length > 0) {
+        const { error } = await supabaseService.storage.from('chat-attachments').remove(paths);
+        if (error) {
+            console.error('Error removing files from Supabase:', error);
+        }
+      }
+    }
+
+    // Strict ownership check in delete query
+    await db.delete(messages).where(
+        and(
+            eq(messages.id, messageId),
+            eq(messages.senderId, session.user.id)
+        )
+    );
+    
     return { success: true };
   } catch (error) {
     console.error('Error deleting message:', error);
@@ -271,6 +296,37 @@ export async function deleteChatAction(
     if (!chat) return { success: false, error: 'Chat not found' };
     if (chat.userId !== session.user.id && chat.recipientId !== session.user.id) {
       return { success: false, error: 'Forbidden' };
+    }
+
+    // Media Cleanup
+    if (supabaseService) {
+        const chatMessages = await db.query.messages.findMany({
+            where: eq(messages.chatId, chatId),
+            columns: {
+                attachments: true
+            }
+        });
+
+        const allPaths: string[] = [];
+        for (const msg of chatMessages) {
+            if (msg.attachments && Array.isArray(msg.attachments)) {
+                msg.attachments.forEach((a) => {
+                     // Ensure attachment has url property
+                     if (a && typeof a.url === 'string') {
+                        const parts = a.url.split('/chat-attachments/');
+                        if (parts.length > 1) allPaths.push(parts[1]);
+                     }
+                });
+            }
+        }
+
+        if (allPaths.length > 0) {
+            // Batch delete
+             const { error } = await supabaseService.storage.from('chat-attachments').remove(allPaths);
+             if (error) {
+                 console.error('Error removing chat files from Supabase:', error);
+             }
+        }
     }
 
     await db.delete(chats).where(eq(chats.id, chatId));

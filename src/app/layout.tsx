@@ -3,7 +3,7 @@ import type { Metadata } from 'next';
 import { Geist, Geist_Mono } from 'next/font/google';
 import { auth } from '@/auth';
 import AuthProvider from '@/components/auth/AuthProvider';
-import Navbar from '@/components/layout/Navbar';
+import ChatLayoutWrapper from '@/components/layout/ChatLayoutWrapper';
 import Providers from '@/components/Providers';
 import RealtimePresence from '@/components/realtime/RealtimePresence';
 import Sidebar from '@/components/sidebar/Sidebar';
@@ -40,13 +40,12 @@ export default async function RootLayout({
         <Providers>
           <AuthProvider>
             <RealtimePresence />
-            {/* Передаємо юзера в Навбар через пропси */}
-            <Navbar user={session?.user} />
-
-            <div className="flex pt-16 min-h-screen">
-              {session && <Sidebar />}
-              <main className="flex-1">{children}</main>
-            </div>
+            <ChatLayoutWrapper 
+              user={session?.user} 
+              sidebar={session ? <Sidebar /> : null}
+            >
+              {children}
+            </ChatLayoutWrapper>
           </AuthProvider>
         </Providers>
       </body>

@@ -2,6 +2,7 @@ import type { RealtimeChannel } from '@supabase/supabase-js';
 import { type InfiniteData, useInfiniteQuery, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useSession } from 'next-auth/react';
 import { useEffect, useRef, useState } from 'react';
+import { useRouter } from 'next/navigation'; // Додано імпорт
 import type { VirtuosoHandle } from 'react-virtuoso';
 import {
   deleteChatAction,
@@ -42,7 +43,6 @@ export function useChats() {
       if (!result.success) {
         throw new Error(result.error);
       }
-      // Після перевірки success, TS гарантує наявність data
       return result.data;
     },
   });
@@ -64,7 +64,7 @@ export function useMessages(chatId: string, currentUserId: string | undefined) {
       .on(
         'postgres_changes',
         {
-          event: '*', // Слухаємо всі зміни (INSERT, DELETE)
+          event: '*',
           schema: 'public',
           table: 'messages',
           filter: `chat_id=eq.${chatId}`,
@@ -76,11 +76,9 @@ export function useMessages(chatId: string, currentUserId: string | undefined) {
             queryClient.setQueryData<InfiniteData<Message[], Date | undefined>>(['messages', chatId], (old) => {
               if (!old) return old;
               
-              // 1. Уникаємо дублікатів
               const allMessages = old.pages.flat();
               if (allMessages.some((m) => m.id === raw.id)) return old;
 
-              // 2. МАГІЯ РЕПЛАЮ
               const parentId = raw.reply_to_id || raw.replyToId;
               const foundParent = parentId 
                 ? (allMessages.find(m => m.id === parentId) as Message | undefined)
@@ -99,7 +97,6 @@ export function useMessages(chatId: string, currentUserId: string | undefined) {
                 isOptimistic: false,
               };
 
-              // 3. Перевіряємо заміну оптимістичного
               const matchIndex = allMessages.findIndex(
                 (m) =>
                   m.isOptimistic &&
@@ -107,11 +104,9 @@ export function useMessages(chatId: string, currentUserId: string | undefined) {
                   m.content.trim() === newMessage.content.trim(),
               );
 
-              // Клонуємо структуру
               const newPages = [...old.pages];
               
               if (matchIndex !== -1) {
-                // Знаходимо в якій сторінці це повідомлення
                 let currentIndex = 0;
                 for (let i = 0; i < newPages.length; i++) {
                   if (matchIndex >= currentIndex && matchIndex < currentIndex + newPages[i].length) {
@@ -123,7 +118,6 @@ export function useMessages(chatId: string, currentUserId: string | undefined) {
                   currentIndex += newPages[i].length;
                 }
               } else {
-                // Додаємо в кінець ПЕРШОЇ сторінки
                 const firstPage = [...(newPages[0] || [])];
                 firstPage.push(newMessage);
                 newPages[0] = firstPage;
@@ -206,9 +200,6 @@ export function useMessages(chatId: string, currentUserId: string | undefined) {
     enabled: !!chatId,
   });
 
-  // Flattened messages for the UI
-  // Note: Pages are [NewestPage, OlderPage, ...]. Each page is [OldestInPage, ..., NewestInPage].
-  // So we need to reverse the pages order and then flatten.
   const allMessages = query.data?.pages ? [...query.data.pages].reverse().flat() : [];
 
   return { ...query, messages: allMessages, isTyping, setTyping };
@@ -245,6 +236,8 @@ export function useDeleteMessage(chatId: string) {
 
 export function useDeleteChat() {
   const queryClient = useQueryClient();
+  const router = useRouter(); // Використовуємо роутер
+
   return useMutation({
     mutationFn: (chatId: string) => deleteChatAction(chatId),
     onMutate: async (chatId) => {
@@ -257,13 +250,19 @@ export function useDeleteChat() {
 
       return { previousChats };
     },
+    onSuccess: () => {
+      // ПЕРЕМОГА: Редірект після успішного видалення
+      router.push('/');
+      router.refresh();
+    },
     onError: (_err, _variables, context) => {
       if (context?.previousChats) {
         queryClient.setQueryData(['chats'], context.previousChats);
       }
     },
-    onSettled: () => {
+    onSettled: (_data, _error, variables) => {
       queryClient.invalidateQueries({ queryKey: ['chats'] });
+      queryClient.invalidateQueries({ queryKey: ['chat', variables] });
     },
   });
 }
@@ -277,45 +276,50 @@ export function useScrollToMessage(
   const [highlightedId, setHighlightedId] = useState<string | null>(null);
   const scrollTargetId = useRef<string | null>(null);
 
+  // Окрема функція для "подвійного" скролу
+  const performScroll = (index: number, messageId: string) => {
+    // Крок 1: Миттєвий стрибок, щоб Virtuoso "побачив" елемент і його реальну висоту
+    virtuosoRef.current?.scrollToIndex({
+      index,
+      align: 'center',
+      behavior: 'auto'
+    });
+
+    // Крок 2: Плавне доведення в центр після Layout Pass
+    setTimeout(() => {
+      virtuosoRef.current?.scrollToIndex({
+        index,
+        align: 'center',
+        behavior: 'smooth'
+      });
+      setHighlightedId(messageId);
+      scrollTargetId.current = null;
+      
+      // Прибираємо підсвітку через 3 секунди
+      setTimeout(() => setHighlightedId(null), 3000);
+    }, 50); // 50мс достатньо для рендеру в більшості браузерів
+  };
+
   useEffect(() => {
     if (scrollTargetId.current) {
       const index = messages.findIndex(m => m.id === scrollTargetId.current);
       if (index !== -1) {
-        // Delay a bit to ensure the list is ready or to handle potential race conditions
-        setTimeout(() => {
-          virtuosoRef.current?.scrollToIndex({ 
-            index, 
-            align: 'center', 
-            behavior: 'smooth' 
-          });
-          setHighlightedId(scrollTargetId.current);
-          scrollTargetId.current = null;
-          setTimeout(() => setHighlightedId(null), 3000); // 3s highlight
-        }, 100);
+        performScroll(index, scrollTargetId.current);
       } else if (hasNextPage) {
         fetchNextPage();
       } else {
-        console.warn('Message not found even after fetching all pages');
         scrollTargetId.current = null;
       }
     }
-  }, [messages, hasNextPage, fetchNextPage, virtuosoRef]);
+  }, [messages, hasNextPage, fetchNextPage]);
 
   const scrollToMessage = (messageId: string) => {
     const index = messages.findIndex(m => m.id === messageId);
     if (index !== -1) {
-      virtuosoRef.current?.scrollToIndex({ 
-        index, 
-        align: 'center', 
-        behavior: 'smooth' 
-      });
-      setHighlightedId(messageId);
-      setTimeout(() => setHighlightedId(null), 3000);
+      performScroll(index, messageId);
     } else if (hasNextPage) {
       scrollTargetId.current = messageId;
       fetchNextPage();
-    } else {
-      console.warn('Message not found');
     }
   };
 
@@ -333,6 +337,7 @@ export function useChatDetails(chatId: string) {
       return result.data;
     },
     enabled: !!chatId,
+    retry: false, // Не ретраїмо, якщо чату немає (404)
   });
 }
 
@@ -370,7 +375,7 @@ export function useSendMessage(chatId: string) {
         if (!old) return { pages: [[optimisticMessage]], pageParams: [undefined] };
         const newPages = [...old.pages];
         const firstPage = [...(newPages[0] || [])];
-        firstPage.push(optimisticMessage); // Newest message goes to the end of the first page (chronological)
+        firstPage.push(optimisticMessage);
         newPages[0] = firstPage;
         return { ...old, pages: newPages };
       });

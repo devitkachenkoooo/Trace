@@ -5,88 +5,139 @@ import type { Attachment } from '@/types';
 import { cn } from '@/lib/utils';
 import { useState } from 'react';
 import { ImageModal } from './ImageModal';
+import { Clock, EyeOff } from 'lucide-react';
 
 interface MessageMediaGridProps {
   images: Attachment[];
 }
 
 export function MessageMediaGrid({ images }: MessageMediaGridProps) {
-  const [selectedImage, setSelectedImage] = useState<{ url: string; name: string } | null>(null);
+  const [selectedIndex, setSelectedIndex] = useState<number | null>(null);
+  
+  const activeImages = images.filter(img => !img.isDeleted);
   const count = images.length;
   
   if (count === 0) return null;
 
-  // 1. ОДНЕ ЗОБРАЖЕННЯ
+  const handleImageClick = (index: number) => {
+    const clickedImage = images[index];
+    if (clickedImage.isDeleted) return;
+    
+    const activeIndex = activeImages.findIndex(img => img.id === clickedImage.id);
+    if (activeIndex !== -1) {
+      setSelectedIndex(activeIndex);
+    }
+  };
+
+  const DeletedPlaceholder = ({ name }: { name: string }) => (
+    <div className="flex flex-col items-center justify-center w-full h-full bg-neutral-900/80 border border-white/5 rounded-xl p-4 text-center min-h-[150px]">
+      <div className="w-10 h-10 rounded-full bg-white/5 flex items-center justify-center mb-2">
+        <Clock className="w-5 h-5 text-white/40" />
+      </div>
+      <p className="text-[11px] text-white/40 font-medium uppercase tracking-widest">
+        Media expired after 24h
+      </p>
+      <p className="text-[10px] text-white/20 mt-1 truncate max-w-full">
+        {name}
+      </p>
+    </div>
+  );
+
+  // 1 IMAGE - Робимо її великою, але стриманою за висотою
   if (count === 1) {
     const img = images[0];
     return (
       <>
-        <button 
-          type="button"
-          className="relative rounded-2xl overflow-hidden border border-white/10 bg-white/5 cursor-pointer hover:opacity-90 transition-opacity duration-300 block overflow-hidden"
-          onClick={() => setSelectedImage({ url: img.url, name: img.metadata.name })}
-        >
-          <Image
-            src={img.url}
-            alt={img.metadata.name}
-            width={400}
-            height={300}
-            className="w-auto h-auto max-w-full max-h-[350px] object-contain"
-            unoptimized
-          />
-        </button>
+        <div className="relative group max-w-full">
+          {img.isDeleted ? (
+            <DeletedPlaceholder name={img.metadata.name} />
+          ) : (
+            <button 
+              type="button"
+              className="relative rounded-2xl overflow-hidden border border-white/10 bg-white/5 cursor-pointer hover:opacity-95 transition-all duration-300 block w-full group"
+              onClick={() => handleImageClick(0)}
+            >
+              <Image
+                src={img.url}
+                alt={img.metadata.name}
+                width={800}
+                height={600}
+                className="w-full h-auto max-h-[500px] object-contain"
+                unoptimized
+              />
+              <div className="absolute inset-0 bg-black/0 group-hover:bg-black/10 transition-colors" />
+            </button>
+          )}
+        </div>
         <ImageModal
-          isOpen={!!selectedImage}
-          imageUrl={selectedImage?.url || ''}
-          imageName={selectedImage?.name || ''}
-          onClose={() => setSelectedImage(null)}
+          isOpen={selectedIndex !== null}
+          images={activeImages}
+          initialIndex={selectedIndex || 0}
+          onClose={() => setSelectedIndex(null)}
         />
       </>
     );
   }
 
-  // 2. БАГАТО ЗОБРАЖЕНЬ
+  // MULTI GRID
   const displayImages = images.slice(0, 4);
+  // Математика: якщо всього 6, а ми показуємо 4, то залишається 2 схованих поза сіткою.
   const remaining = count - 4;
 
   return (
     <>
       <div className={cn(
-        "grid gap-0.5 rounded-2xl overflow-hidden border border-white/10 bg-white/5 w-[260px] sm:w-[300px]", // Фіксована ширина сітки
-        count === 2 ? "grid-cols-2" : "grid-cols-2"
+        "grid gap-1 rounded-2xl overflow-hidden border border-white/10 bg-white/5 w-full",
+        count === 2 ? "grid-cols-2 aspect-[16/10]" : "grid-cols-2 aspect-square"
       )}>
-        {displayImages.map((img, i) => (
-          <button 
-            key={img.id}
-            type="button" 
-            // aspect-square гарантує, що фото не будуть сплюснуті
-            className={cn(
-              "relative aspect-square cursor-pointer hover:opacity-90 transition-opacity duration-300 block bg-neutral-800",
-              count === 3 && i === 0 ? "col-span-2 aspect-[2/1]" : "" // Якщо 3 фото, перше зверху широке
-            )}
-            onClick={() => setSelectedImage({ url: img.url, name: img.metadata.name })}
-          >
-            <Image
-              src={img.url}
-              alt={img.metadata.name}
-              fill
-              className="object-cover"
-              unoptimized
-            />
-            {i === 3 && remaining > 0 && (
-              <div className="absolute inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center text-white font-bold text-xl">
-                +{remaining}
-              </div>
-            )}
-          </button>
-        ))}
+        {displayImages.map((img, i) => {
+          const isLast = i === 3;
+          const showOverlay = isLast && remaining > 0;
+          
+          return (
+            <div 
+              key={img.id}
+              className={cn(
+                "relative bg-neutral-800 overflow-hidden group",
+                count === 3 && i === 0 ? "col-span-2 row-span-1" : ""
+              )}
+            >
+              {img.isDeleted ? (
+                <div className="w-full h-full flex items-center justify-center bg-neutral-900/50 min-h-[100px]">
+                  <EyeOff className="w-4 h-4 text-white/20" />
+                </div>
+              ) : (
+                <button 
+                  type="button" 
+                  className="w-full h-full relative block"
+                  onClick={() => handleImageClick(i)}
+                >
+                  <Image
+                    src={img.url}
+                    alt={img.metadata.name}
+                    fill
+                    className="object-cover group-hover:scale-105 transition-transform duration-500"
+                    unoptimized
+                  />
+                  <div className="absolute inset-0 bg-black/0 group-hover:bg-black/20 transition-colors" />
+                  
+                  {showOverlay && (
+                    <div className="absolute inset-0 bg-black/70 backdrop-blur-[2px] flex items-center justify-center text-white z-10">
+                      <span className="font-bold text-2xl tracking-tighter">+{remaining}</span>
+                    </div>
+                  )}
+                </button>
+              )}
+            </div>
+          );
+        })}
       </div>
 
       <ImageModal
-        isOpen={!!selectedImage}
-        imageUrl={selectedImage?.url || ''}
-        imageName={selectedImage?.name || ''}
-        onClose={() => setSelectedImage(null)}
+        isOpen={selectedIndex !== null}
+        images={activeImages}
+        initialIndex={selectedIndex || 0}
+        onClose={() => setSelectedIndex(null)}
       />
     </>
   );

@@ -10,6 +10,7 @@ export interface Attachment {
   id: string;
   type: 'image' | 'file';
   url: string;
+  isDeleted?: boolean;
   metadata: {
     name: string;
     size: number;

@@ -18,11 +18,21 @@ import {
   useScrollToMessage,
 } from '@/hooks/useChatHooks';
 import type { Message } from '@/types';
+import { useRouter } from 'next/navigation';
+import { formatRelativeTime } from '@/lib/date-utils'; // Наш канон
 
 export default function ChatPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = use(params);
+  const router = useRouter();
   const { data: session } = useSession();
-  const { data: chat, isLoading: isChatLoading } = useChatDetails(id);
+  
+  const { 
+    data: chat, 
+    isLoading: isChatLoading, 
+    isError, 
+    error: chatError 
+  } = useChatDetails(id);
+
   const {
     messages,
     isLoading: isMessagesLoading,
@@ -32,10 +42,11 @@ export default function ChatPage({ params }: { params: Promise<{ id: string }> }
     hasNextPage,
     isFetchingNextPage,
   } = useMessages(id, session?.user?.id);
+
   const markAsRead = useMarkAsRead();
   const { onlineUsers } = usePresence(session?.user?.id);
-
   const deleteMessage = useDeleteMessage(id);
+  
   const virtuosoRef = useRef<VirtuosoHandle>(null);
   const { scrollToMessage, highlightedId } = useScrollToMessage(
     virtuosoRef,
@@ -43,21 +54,25 @@ export default function ChatPage({ params }: { params: Promise<{ id: string }> }
     fetchNextPage,
     hasNextPage
   );
+
   const [replyingTo, setReplyingTo] = useState<Message | null>(null);
   const [messageToDelete, setMessageToDelete] = useState<string | null>(null);
   const [showScrollButton, setShowScrollButton] = useState(false);
 
-  // 1. Позначення як прочитане
   useEffect(() => {
-    if (id) {
+    if (!isChatLoading && (!chat || isError)) {
+      router.replace('/');
+    }
+  }, [isChatLoading, chat, isError, router]);
+
+  useEffect(() => {
+    if (id && chat) {
       markAsRead.mutate(id);
     }
-  }, [id, markAsRead.mutate]);
+  }, [id, chat, markAsRead.mutate]);
 
-  // 2. Обробник реплаю
   const handleReply = (message: Message) => {
     setReplyingTo(message);
-    // Scroll to bottom so input and reply preview are seen
     setTimeout(() => {
       virtuosoRef.current?.scrollToIndex({
         index: messages.length - 1,
@@ -68,48 +83,53 @@ export default function ChatPage({ params }: { params: Promise<{ id: string }> }
 
   if (isChatLoading || (isMessagesLoading && !messages.length)) {
     return (
-      <div className="flex items-center justify-center h-full text-gray-400">
-        Loading chat...
+      <div className="flex items-center justify-center h-full text-gray-400 bg-background">
+        <div className="flex flex-col items-center gap-2">
+          <div className="w-8 h-8 border-2 border-blue-500 border-t-transparent rounded-full animate-spin" />
+          <p className="text-sm font-medium animate-pulse">Завантаження чату...</p>
+        </div>
       </div>
     );
   }
 
-  if (!chat) return null;
+  if (!chat || isError) return null;
 
   const otherParticipant = chat.participants.find((p) => p.id !== session?.user?.id);
   const isOnline = otherParticipant && onlineUsers.has(otherParticipant.id);
   const isTypingNow = otherParticipant && isTyping[otherParticipant.id];
 
-  const statusText = isTypingNow
-    ? 'Typing...'
-    : isOnline
-      ? 'Online'
-      : otherParticipant?.lastSeen
-        ? `Last seen ${new Date(otherParticipant.lastSeen).toLocaleTimeString()}`
-        : 'Offline';
+  // Оновлена логіка статусів
+  const renderStatus = () => {
+    if (isTypingNow) return <span className="text-blue-400 animate-pulse">друкує...</span>;
+    if (isOnline) return <span className="text-green-400">в мережі</span>;
+    if (otherParticipant?.lastSeen) {
+      return `був(ла) ${formatRelativeTime(otherParticipant.lastSeen)}`;
+    }
+    return 'не в мережі';
+  };
 
   return (
-    <div className="flex flex-col h-full w-full bg-background relative overflow-hidden">
+    <div className="flex flex-col h-[calc(100dvh-64px)] w-full bg-background relative overflow-hidden">
       
       {/* Header */}
-      <div className="px-4 sm:px-6 py-3 sm:py-4 border-b border-white/5 flex items-center justify-between backdrop-blur-xl bg-black/20 sticky top-0 z-20">
+      <div className="px-3 sm:px-6 py-3 sm:py-4 border-b border-white/5 flex items-center justify-between backdrop-blur-xl bg-black/40 sticky top-0 z-20">
         <div className="flex items-center gap-3 sm:gap-4">
-          <div className="relative w-10 h-10 sm:w-12 sm:h-12 rounded-full overflow-hidden border border-white/10 ring-2 ring-white/5">
+          <div className="relative w-10 h-10 sm:w-11 sm:h-11 rounded-full overflow-hidden border border-white/10 shadow-lg">
             <Image
               src={otherParticipant?.image || '/default-avatar.png'}
               alt={otherParticipant?.name || 'User'}
               fill
               className="object-cover"
-              sizes="(max-width: 640px) 40px, 48px"
+              sizes="(max-width: 640px) 40px, 44px"
             />
           </div>
           <div className="min-w-0">
-            <h2 className="text-base sm:text-lg font-bold text-white tracking-tight truncate">
-              {otherParticipant?.name || 'Unknown User'}
+            <h2 className="text-sm sm:text-base font-bold text-white tracking-tight truncate leading-tight">
+              {otherParticipant?.name || 'Невідомий користувач'}
             </h2>
-            <p className={`text-[10px] sm:text-xs transition-colors ${isTypingNow || isOnline ? 'text-blue-400 font-medium' : 'text-gray-500'}`}>
-              {statusText}
-            </p>
+            <div className="text-[10px] sm:text-[11px] text-gray-500 font-medium">
+              {renderStatus()}
+            </div>
           </div>
         </div>
       </div>
@@ -131,7 +151,7 @@ export default function ChatPage({ params }: { params: Promise<{ id: string }> }
             }
           }}
           itemContent={(_index, message) => (
-            <div className="px-4 sm:px-6 lg:px-8 max-w-5xl mx-auto w-full py-1">
+            <div className="px-2 sm:px-6 lg:px-8 max-w-5xl mx-auto w-full py-0.5">
               <MessageBubble
                 key={message.id}
                 message={message}
@@ -148,9 +168,9 @@ export default function ChatPage({ params }: { params: Promise<{ id: string }> }
             Header: () => (
               <div className="py-10 text-center">
                 {isFetchingNextPage ? (
-                  <span className="text-xs text-gray-500">Loading older messages...</span>
+                  <span className="text-[10px] text-gray-600 uppercase tracking-widest">Завантаження повідомлень...</span>
                 ) : !hasNextPage && messages.length > 0 ? (
-                  <span className="text-xs text-gray-500 italic">Beginning of time</span>
+                  <span className="text-[10px] text-gray-600 uppercase tracking-widest opacity-50 italic">Початок історії</span>
                 ) : null}
               </div>
             ),
@@ -162,11 +182,11 @@ export default function ChatPage({ params }: { params: Promise<{ id: string }> }
         <AnimatePresence>
           {showScrollButton && (
             <motion.button
-              initial={{ opacity: 0, y: 10, scale: 0.9 }}
-              animate={{ opacity: 1, y: 0, scale: 1 }}
-              exit={{ opacity: 0, y: 10, scale: 0.9 }}
+              initial={{ opacity: 0, scale: 0.8 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.8 }}
               onClick={() => virtuosoRef.current?.scrollToIndex({ index: messages.length - 1, behavior: 'smooth' })}
-              className="absolute bottom-6 right-6 p-3 rounded-full bg-white/10 hover:bg-white/20 border border-white/10 backdrop-blur-xl text-white shadow-2xl transition-all z-10 group"
+              className="absolute bottom-6 right-6 p-3 rounded-full bg-white/5 hover:bg-white/10 border border-white/10 backdrop-blur-2xl text-white shadow-2xl transition-all z-10 group"
             >
               <ChevronDown className="w-5 h-5 group-hover:translate-y-0.5 transition-transform" />
             </motion.button>
@@ -175,15 +195,14 @@ export default function ChatPage({ params }: { params: Promise<{ id: string }> }
       </div>
 
       {/* Input Section */}
-      <div className="w-full border-t border-white/5 bg-black/20 backdrop-blur-xl z-20">
-        <div className="max-w-5xl mx-auto px-2 sm:px-4 py-2 sm:py-4">
+      <div className="w-full border-t border-white/5 bg-black/40 backdrop-blur-2xl z-20">
+        <div className="max-w-5xl mx-auto px-1.5 sm:px-4 py-2 sm:py-4">
           <ChatInput
             chatId={id}
             setTyping={setTyping}
             replyToId={replyingTo?.id}
             onReplyCancel={() => setReplyingTo(null)}
             onMessageSent={() => {
-              // Forced scroll to bottom after sending
               setTimeout(() => {
                 virtuosoRef.current?.scrollToIndex({
                   index: messages.length - 1,
@@ -199,8 +218,8 @@ export default function ChatPage({ params }: { params: Promise<{ id: string }> }
       <ConfirmationDialog
         open={!!messageToDelete}
         onOpenChange={(open) => !open && setMessageToDelete(null)}
-        title="Delete Message"
-        description="Are you sure you want to delete this message?"
+        title="Видалити повідомлення?"
+        description="Ця дія незворотна. Повідомлення зникне для обох учасників."
         onConfirm={() => {
           if (messageToDelete) {
             deleteMessage.mutate(messageToDelete);
