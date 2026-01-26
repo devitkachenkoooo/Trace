@@ -12,7 +12,8 @@ import {
 import { cn } from '@/lib/utils';
 import type { Message } from '@/types';
 import { MessageMediaGrid } from './MessageMediaGrid';
-import { formatMessageDate } from '@/lib/date-utils'; // Наш канонічний хелпер
+import { formatMessageDate } from '@/lib/date-utils';
+import Linkify from 'linkify-react';
 
 interface MessageBubbleProps {
   message: Message;
@@ -99,9 +100,17 @@ export function MessageBubble({
               )}
 
               {message.content && (
-                <p className="text-[15px] leading-relaxed whitespace-pre-wrap break-all sm:break-words block w-full max-w-full overflow-hidden min-w-0">
-                  {message.content}
-                </p>
+                <div className="text-[15px] leading-relaxed whitespace-pre-wrap break-all sm:break-words block w-full max-w-full overflow-hidden min-w-0">
+                  <Linkify
+                    options={{
+                      target: '_blank',
+                      rel: 'noopener noreferrer',
+                      className: 'text-blue-400 hover:text-blue-300 underline underline-offset-4 transition-colors cursor-pointer',
+                    }}
+                  >
+                    {message.content}
+                  </Linkify>
+                </div>
               )}
 
               {fileAttachments.length > 0 && (
