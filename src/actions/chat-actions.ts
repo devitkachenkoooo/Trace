@@ -3,17 +3,60 @@
 import { and, desc, eq, ilike, lt, ne, or } from 'drizzle-orm';
 import { revalidatePath } from 'next/cache';
 import { redirect } from 'next/navigation';
-import { auth } from '@/auth';
+import { createClient } from '@/lib/supabase/server';
 import { db } from '@/db';
 import { chats, messages, users } from '@/db/schema';
 import { supabaseService } from '@/lib/supabase';
 
 import type { Attachment, FullChat, Message, User } from '@/types';
 
-// Оптимізований getFullChatAction
+/**
+ * Отримує поточного користувача із Supabase SSR та синхронізує його з нашою БД Drizzle.
+ */
+async function getCurrentUser() {
+  try {
+    const supabase = await createClient();
+    const { data: { user }, error } = await supabase.auth.getUser();
+    
+    if (error || !user) {
+      console.log("No active session found");
+      return null;
+    }
+
+    // Отримуємо дані з метаданих Google безпечно через опціональний ланцюжок
+    const userName = user.user_metadata?.full_name || user.user_metadata?.name || user.email?.split('@')[0] || 'Користувач';
+    const userImage = user.user_metadata?.avatar_url || user.user_metadata?.picture || null;
+
+    // Вставляємо або оновлюємо користувача (Upsert)
+    const [dbUser] = await db
+      .insert(users)
+      .values({
+        id: user.id,
+        email: user.email!,
+        name: userName,
+        image: userImage,
+        lastSeen: new Date(),
+      })
+      .onConflictDoUpdate({
+        target: users.id,
+        set: {
+          name: userName,
+          image: userImage,
+          lastSeen: new Date(),
+        }
+      })
+      .returning();
+
+    return dbUser;
+  } catch (err) {
+    console.error("Error in getCurrentUser:", err);
+    return null;
+  }
+}
+
 export async function getFullChatAction(chatId: string) {
-  const session = await auth();
-  if (!session?.user?.id) return { success: false, error: 'Unauthorized' };
+  const user = await getCurrentUser();
+  if (!user?.id) return { success: false, error: 'Unauthorized' };
 
   try {
     const chat = await db.query.chats.findFirst({
@@ -35,9 +78,8 @@ export async function getFullChatAction(chatId: string) {
 
     if (!chat) return { success: false, error: 'Chat not found' };
 
-    const otherUser = chat.userId === session.user.id ? chat.recipient : chat.user;
+    const otherUser = chat.userId === user.id ? chat.recipient : chat.user;
     
-    // Форматуємо replyDetails прямо тут
     const messagesWithReplies = chat.messages.reverse().map(msg => ({
       ...msg,
       replyDetails: msg.replyTo ? {
@@ -65,8 +107,8 @@ export async function getMessagesAction(
   cursor?: Date,
   limit = 50
 ): Promise<{ success: true; data: Message[] } | { success: false; error: string }> {
-  const session = await auth();
-  if (!session?.user?.id) return { success: false, error: 'Unauthorized' };
+  const user = await getCurrentUser();
+  if (!user?.id) return { success: false, error: 'Unauthorized' };
 
   try {
     const fetchedMessages = await db.query.messages.findMany({
@@ -102,19 +144,17 @@ export async function getMessagesAction(
 export async function searchUsersAction(
   query: string,
 ): Promise<{ success: true; data: User[] } | { success: false; error: string }> {
-  const session = await auth();
-  if (!session?.user?.id) return { success: false, error: 'Unauthorized' };
+  const user = await getCurrentUser();
+  if (!user?.id) return { success: false, error: 'Unauthorized' };
 
-  const myId = session.user.id;
+  const myId = user.id;
 
   try {
     if (!query) {
-      // Find all chats where I am a participant
       const myChats = await db.query.chats.findMany({
         where: or(eq(chats.userId, myId), eq(chats.recipientId, myId)),
       });
 
-      // Get unique IDs of people I've chatted with
       const participantIds = myChats
         .map((c) => (c.userId === myId ? c.recipientId : c.userId))
         .filter(Boolean) as string[];
@@ -145,12 +185,11 @@ export async function searchUsersAction(
 }
 
 export async function getOrCreateChatAction(targetUserId: string) {
-  const session = await auth();
-  if (!session?.user?.id) throw new Error('Unauthorized');
+  const user = await getCurrentUser();
+  if (!user?.id) throw new Error('Unauthorized');
 
-  const myId = session.user.id;
+  const myId = user.id;
 
-  // Шукаємо існуючий чат 1-на-1
   const existingChat = await db.query.chats.findFirst({
     where: or(
       and(eq(chats.userId, myId), eq(chats.recipientId, targetUserId)),
@@ -162,12 +201,10 @@ export async function getOrCreateChatAction(targetUserId: string) {
     redirect(`/chat/${existingChat.id}`);
   }
 
-  // Отримуємо ім'я отримувача для заголовка чату (опційно)
   const targetUser = await db.query.users.findFirst({
     where: eq(users.id, targetUserId),
   });
 
-  // Створюємо новий чат
   const [newChat] = await db
     .insert(chats)
     .values({
@@ -187,9 +224,8 @@ export async function sendMessageAction(
   replyToId?: string,
   attachments: Attachment[] = [],
 ): Promise<{ success: true; data: Message } | { success: false; error: string }> {
-  const session = await auth();
-  if (!session?.user?.id) return { success: false, error: 'Unauthorized' };
-
+  const user = await getCurrentUser();
+  if (!user?.id) return { success: false, error: 'Unauthorized' };
 
   const trimmedContent = content.trim();
   const hasAttachments = attachments.length > 0;
@@ -203,14 +239,13 @@ export async function sendMessageAction(
       .insert(messages)
       .values({
         chatId,
-        senderId: session.user.id,
+        senderId: user.id,
         content: trimmedContent,
         replyToId: replyToId || null,
         attachments: attachments,
       })
       .returning();
 
-    // Fetch reply details if exists to return full object immediately (optimistic update support)
     let replyDetails = null;
     if (replyToId) {
       const replyMsg = await db.query.messages.findFirst({
@@ -238,8 +273,8 @@ export async function sendMessageAction(
 export async function deleteMessageAction(
   messageId: string,
 ): Promise<{ success: true } | { success: false; error: string }> {
-  const session = await auth();
-  if (!session?.user?.id) return { success: false, error: 'Unauthorized' };
+  const user = await getCurrentUser();
+  if (!user?.id) return { success: false, error: 'Unauthorized' };
 
   try {
     const message = await db.query.messages.findFirst({
@@ -247,9 +282,8 @@ export async function deleteMessageAction(
     });
 
     if (!message) return { success: false, error: 'Message not found' };
-    if (message.senderId !== session.user.id) return { success: false, error: 'Forbidden' };
+    if (message.senderId !== user.id) return { success: false, error: 'Forbidden' };
 
-    // Media Cleanup
     if (supabaseService && message.attachments && message.attachments.length > 0) {
       const paths = message.attachments
         .map((a) => {
@@ -266,11 +300,10 @@ export async function deleteMessageAction(
       }
     }
 
-    // Strict ownership check in delete query
     await db.delete(messages).where(
         and(
             eq(messages.id, messageId),
-            eq(messages.senderId, session.user.id)
+            eq(messages.senderId, user.id)
         )
     );
     
@@ -284,21 +317,19 @@ export async function deleteMessageAction(
 export async function deleteChatAction(
   chatId: string,
 ): Promise<{ success: true } | { success: false; error: string }> {
-  const session = await auth();
-  if (!session?.user?.id) return { success: false, error: 'Unauthorized' };
+  const user = await getCurrentUser();
+  if (!user?.id) return { success: false, error: 'Unauthorized' };
 
   try {
-    // Verify participation
     const chat = await db.query.chats.findFirst({
       where: eq(chats.id, chatId),
     });
 
     if (!chat) return { success: false, error: 'Chat not found' };
-    if (chat.userId !== session.user.id && chat.recipientId !== session.user.id) {
+    if (chat.userId !== user.id && chat.recipientId !== user.id) {
       return { success: false, error: 'Forbidden' };
     }
 
-    // Media Cleanup
     if (supabaseService) {
         const chatMessages = await db.query.messages.findMany({
             where: eq(messages.chatId, chatId),
@@ -311,7 +342,6 @@ export async function deleteChatAction(
         for (const msg of chatMessages) {
             if (msg.attachments && Array.isArray(msg.attachments)) {
                 msg.attachments.forEach((a) => {
-                     // Ensure attachment has url property
                      if (a && typeof a.url === 'string') {
                         const parts = a.url.split('/chat-attachments/');
                         if (parts.length > 1) allPaths.push(parts[1]);
@@ -321,7 +351,6 @@ export async function deleteChatAction(
         }
 
         if (allPaths.length > 0) {
-            // Batch delete
              const { error } = await supabaseService.storage.from('chat-attachments').remove(allPaths);
              if (error) {
                  console.error('Error removing chat files from Supabase:', error);
@@ -342,8 +371,8 @@ export async function deleteChatAction(
 export async function markAsReadAction(
   chatId: string,
 ): Promise<{ success: true } | { success: false; error: string }> {
-  const session = await auth();
-  if (!session?.user?.id) return { success: false, error: 'Unauthorized' };
+  const user = await getCurrentUser();
+  if (!user?.id) return { success: false, error: 'Unauthorized' };
 
   try {
     await db
@@ -352,7 +381,7 @@ export async function markAsReadAction(
       .where(
         and(
           eq(messages.chatId, chatId),
-          ne(messages.senderId, session.user.id),
+          ne(messages.senderId, user.id),
           eq(messages.isRead, false),
         ),
       );
@@ -364,14 +393,13 @@ export async function markAsReadAction(
   }
 }
 
-// Оптимізований getChatsAction
 export async function getChatsAction(): Promise<{ success: true; data: FullChat[] } | { success: false; error: string }> {
-  const session = await auth();
-  if (!session?.user?.id) return { success: false, error: 'Unauthorized' };
+  const user = await getCurrentUser();
+  if (!user?.id) return { success: false, error: 'Unauthorized' };
 
   try {
     const myChats = await db.query.chats.findMany({
-      where: or(eq(chats.userId, session.user.id), eq(chats.recipientId, session.user.id)),
+      where: or(eq(chats.userId, user.id), eq(chats.recipientId, user.id)),
       with: {
         recipient: true,
         user: true,
@@ -384,7 +412,7 @@ export async function getChatsAction(): Promise<{ success: true; data: FullChat[
     });
 
     const formattedChats = myChats.map((chat) => {
-      const otherUser = chat.userId === session.user.id ? chat.recipient : chat.user;
+      const otherUser = chat.userId === user.id ? chat.recipient : chat.user;
       return {
         ...chat,
         participants: otherUser ? [otherUser] : [],
@@ -402,11 +430,11 @@ export async function getChatsAction(): Promise<{ success: true; data: FullChat[
 export async function updateLastSeenAction(): Promise<
   { success: true } | { success: false; error: string }
 > {
-  const session = await auth();
-  if (!session?.user?.id) return { success: false, error: 'Unauthorized' };
+  const user = await getCurrentUser();
+  if (!user?.id) return { success: false, error: 'Unauthorized' };
 
   try {
-    await db.update(users).set({ lastSeen: new Date() }).where(eq(users.id, session.user.id));
+    await db.update(users).set({ lastSeen: new Date() }).where(eq(users.id, user.id));
 
     return { success: true };
   } catch (error) {

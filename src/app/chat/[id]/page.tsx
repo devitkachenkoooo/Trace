@@ -1,7 +1,7 @@
 'use client';
 
 import Image from 'next/image';
-import { useSession } from 'next-auth/react';
+import { useSupabaseAuth } from '@/components/SupabaseAuthProvider';
 import { use, useEffect, useRef, useState } from 'react';
 import { Virtuoso, type VirtuosoHandle } from 'react-virtuoso';
 import { ChevronDown } from 'lucide-react';
@@ -19,12 +19,12 @@ import {
 } from '@/hooks/useChatHooks';
 import type { Message } from '@/types';
 import { useRouter } from 'next/navigation';
-import { formatRelativeTime } from '@/lib/date-utils'; // Наш канон
+import { formatRelativeTime } from '@/lib/date-utils';
 
 export default function ChatPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = use(params);
   const router = useRouter();
-  const { data: session } = useSession();
+  const { user } = useSupabaseAuth();
   
   const { 
     data: chat, 
@@ -41,10 +41,10 @@ export default function ChatPage({ params }: { params: Promise<{ id: string }> }
     fetchNextPage,
     hasNextPage,
     isFetchingNextPage,
-  } = useMessages(id, session?.user?.id);
+  } = useMessages(id, user?.id);
 
   const markAsRead = useMarkAsRead();
-  const { onlineUsers } = usePresence(session?.user?.id);
+  const { onlineUsers } = usePresence(user?.id);
   const deleteMessage = useDeleteMessage(id);
   
   const virtuosoRef = useRef<VirtuosoHandle>(null);
@@ -94,11 +94,10 @@ export default function ChatPage({ params }: { params: Promise<{ id: string }> }
 
   if (!chat || isError) return null;
 
-  const otherParticipant = chat.participants.find((p) => p.id !== session?.user?.id);
+  const otherParticipant = chat.participants.find((p) => p.id !== user?.id);
   const isOnline = otherParticipant && onlineUsers.has(otherParticipant.id);
   const isTypingNow = otherParticipant && isTyping[otherParticipant.id];
 
-  // Оновлена логіка статусів
   const renderStatus = () => {
     if (isTypingNow) return <span className="text-blue-400 animate-pulse">друкує...</span>;
     if (isOnline) return <span className="text-green-400">в мережі</span>;
@@ -155,7 +154,7 @@ export default function ChatPage({ params }: { params: Promise<{ id: string }> }
               <MessageBubble
                 key={message.id}
                 message={message}
-                currentUserId={session?.user?.id}
+                currentUserId={user?.id}
                 onReply={handleReply}
                 onDelete={setMessageToDelete}
                 onScrollToMessage={scrollToMessage}

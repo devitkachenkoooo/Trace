@@ -2,7 +2,7 @@
 
 import { MessageSquarePlus, User as UserIcon } from 'lucide-react';
 import Image from 'next/image';
-import { useSession } from 'next-auth/react';
+import { useSupabaseAuth } from '@/components/SupabaseAuthProvider';
 import { getOrCreateChatAction } from '@/actions/chat-actions';
 import { usePresence, useSearchUsers } from '@/hooks/useChatHooks';
 
@@ -11,9 +11,9 @@ interface ContactsListProps {
 }
 
 export default function ContactsList({ query }: ContactsListProps) {
-  const { data: session } = useSession();
+  const { user: currentUser } = useSupabaseAuth();
   const { data: users, isLoading } = useSearchUsers(query);
-  const { onlineUsers } = usePresence(session?.user?.id);
+  const { onlineUsers } = usePresence(currentUser?.id);
 
   if (isLoading) {
     return (

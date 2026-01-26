@@ -1,14 +1,11 @@
-import { boolean, integer, jsonb, pgTable, primaryKey, text, timestamp } from 'drizzle-orm/pg-core';
-import type { AdapterAccountType } from 'next-auth/adapters';
+import { boolean, jsonb, pgTable, text, timestamp } from 'drizzle-orm/pg-core';
 import { relations } from 'drizzle-orm';
 import type { Attachment } from '@/types';
 
-// --- ТАБЛИЦІ АВТОРИЗАЦІЇ ---
+// --- ТАБЛИЦЯ КОРИСТУВАЧІВ (Узгоджена з Supabase) ---
 
 export const users = pgTable('user', {
-  id: text('id')
-    .primaryKey()
-    .$defaultFn(() => crypto.randomUUID()),
+  id: text('id').primaryKey(), // Supabase Auth UID
   name: text('name'),
   email: text('email').notNull().unique(),
   emailVerified: timestamp('emailVerified', { mode: 'date' }),
@@ -16,51 +13,7 @@ export const users = pgTable('user', {
   lastSeen: timestamp('last_seen', { mode: 'date' }).defaultNow(),
 });
 
-export const accounts = pgTable(
-  'account',
-  {
-    userId: text('userId')
-      .notNull()
-      .references(() => users.id, { onDelete: 'cascade' }),
-    type: text('type').$type<AdapterAccountType>().notNull(),
-    provider: text('provider').notNull(),
-    providerAccountId: text('providerAccountId').notNull(),
-    // Ключ для TypeScript має бути таким, як хоче адаптер (snake_case)
-    // А назва в дужках - такою, як хоче база (camelCase)
-    refresh_token: text('refreshToken'),
-    access_token: text('accessToken'),
-    expires_at: integer('expiresAt'),
-    token_type: text('tokenType'),
-    scope: text('scope'),
-    id_token: text('idToken'),
-    session_state: text('sessionState'),
-  },
-  (account) => ({
-    compoundKey: primaryKey({ columns: [account.provider, account.providerAccountId] }),
-  }),
-);
-
-export const sessions = pgTable('session', {
-  sessionToken: text('sessionToken').primaryKey(),
-  userId: text('userId')
-    .notNull()
-    .references(() => users.id, { onDelete: 'cascade' }),
-  expires: timestamp('expires', { mode: 'date' }).notNull(),
-});
-
-export const verificationTokens = pgTable(
-  'verificationToken',
-  {
-    identifier: text('identifier').notNull(),
-    token: text('token').notNull(),
-    expires: timestamp('expires', { mode: 'date' }).notNull(),
-  },
-  (vt) => ({
-    compoundKey: primaryKey({ columns: [vt.identifier, vt.token] }),
-  }),
-);
-
-// --- ТВОЯ ЛОГІКА ЧАТІВ ---
+// --- ТАБЛИЦІ ЧАТІВ ТА ПОВІДОМЛЕНЬ ---
 
 export const chats = pgTable('chats', {
   id: text('id')
@@ -86,7 +39,7 @@ export const messages = pgTable('messages', {
     .references(() => users.id, { onDelete: 'cascade' }),
   content: text('content'),
   attachments: jsonb('attachments').$type<Attachment[]>().notNull().default([]),
-  replyToId: text('reply_to_id'), // Self-reference added
+  replyToId: text('reply_to_id'),
   isRead: boolean('is_read').notNull().default(false),
   createdAt: timestamp('created_at').notNull().defaultNow(),
 });

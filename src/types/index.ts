@@ -49,4 +49,6 @@ export interface Chat {
 export interface FullChat extends Chat {
   messages: Message[];
   participants: User[];
+  recipient?: User | null;
+  user?: User | null;
 }

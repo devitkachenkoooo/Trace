@@ -1,46 +1,49 @@
-import { NextResponse } from 'next/server';
-import { auth } from '@/auth';
-import { LRUCache } from 'lru-cache';
+import { createServerClient, type CookieOptions } from '@supabase/ssr'
+import { NextResponse, type NextRequest } from 'next/server'
 
-// Налаштування лімітів: 10 запитів на 10 секунд
-const rateLimit = new LRUCache<string, number>({
-  max: 1000,
-  ttl: 10000,
-});
+export async function middleware(request: NextRequest) {
+  let response = NextResponse.next({
+    request: {
+      headers: request.headers,
+    },
+  })
 
-export default auth((req) => {
-  const { pathname } = req.nextUrl;
-  
-  // Визначаємо IP-адресу через заголовки (стандарт для Vercel)
-  const forwarded = req.headers.get('x-forwarded-for');
-  const ip = forwarded ? forwarded.split(',')[0] : '127.0.0.1';
-
-  // 1. Захист API (DDoS Rate Limiting)
-  if (pathname.startsWith('/api')) {
-    const count = rateLimit.get(ip) || 0;
-
-    if (count >= 10) {
-      return NextResponse.json(
-        { error: 'Too many requests. Slow down!' },
-        { status: 429 }
-      );
+  const supabase = createServerClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+    {
+      cookies: {
+        get(name: string) {
+          return request.cookies.get(name)?.value
+        },
+        set(name: string, value: string, options: CookieOptions) {
+          request.cookies.set({ name, value, ...options })
+          response = NextResponse.next({
+            request: { headers: request.headers },
+          })
+          response.cookies.set({ name, value, ...options })
+        },
+        remove(name: string, options: CookieOptions) {
+          request.cookies.set({ name, value: '', ...options })
+          response = NextResponse.next({
+            request: { headers: request.headers },
+          })
+          response.cookies.set({ name, value: '', ...options })
+        },
+      },
     }
+  )
 
-    rateLimit.set(ip, count + 1);
+  const { data: { user } } = await supabase.auth.getUser()
+
+  // Захист роутів: якщо немає юзера і ми не на сторінці логіну — редірект
+  if (!user && !request.nextUrl.pathname.startsWith('/auth') && request.nextUrl.pathname !== '/') {
+    return NextResponse.redirect(new URL('/', request.url))
   }
 
-  // 2. Захист сторінок чату (Авторизація)
-  const isLoggedIn = !!req.auth;
-  const isOnChatPage = pathname.startsWith('/chat');
-
-  if (isOnChatPage && !isLoggedIn) {
-    return NextResponse.redirect(new URL('/', req.nextUrl));
-  }
-
-  return NextResponse.next();
-});
+  return response
+}
 
 export const config = {
-  // Матчер, який покриває все, крім статичних файлів
-  matcher: ['/((?!_next/static|_next/image|favicon.ico).*)'],
-};
+  matcher: ['/((?!_next/static|_next/image|favicon.ico|.*\\.(?:svg|png|jpg|jpeg|gif|webp)$).*)'],
+}

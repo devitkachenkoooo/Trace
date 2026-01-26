@@ -1,20 +1,21 @@
 'use client';
 
 import { useQueryClient } from '@tanstack/react-query';
-import { useSession } from 'next-auth/react';
+import { useSupabaseAuth } from '@/components/SupabaseAuthProvider';
 import { useEffect } from 'react';
-import { supabase } from '@/lib/supabase';
+import { createClient } from '@/lib/supabase/client';
 import { usePresenceStore } from '@/store/usePresenceStore';
 
 export default function RealtimePresence() {
-  const { data: session } = useSession();
+  const { user } = useSupabaseAuth();
   const setOnlineUsers = usePresenceStore((state) => state.setOnlineUsers);
   const queryClient = useQueryClient();
+  const supabase = createClient();
 
   useEffect(() => {
-    if (!session?.user?.id) return;
+    if (!user?.id) return;
 
-    const userId = session.user.id;
+    const userId = user.id;
 
     // 1. Канал для присутності (Online users)
     const presenceChannel = supabase.channel('online-users', {
@@ -61,7 +62,7 @@ export default function RealtimePresence() {
       supabase.removeChannel(presenceChannel);
       supabase.removeChannel(messagesChannel);
     };
-  }, [session?.user?.id, setOnlineUsers, queryClient]);
+  }, [user?.id, setOnlineUsers, queryClient, supabase]);
 
   return null; // This is a logic-only component
 }

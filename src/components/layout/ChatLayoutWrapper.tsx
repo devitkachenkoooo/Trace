@@ -8,6 +8,7 @@ interface ChatLayoutWrapperProps {
   children: React.ReactNode;
   sidebar?: React.ReactNode;
   user?: {
+    id: string;
     name?: string | null;
     email?: string | null;
     image?: string | null;

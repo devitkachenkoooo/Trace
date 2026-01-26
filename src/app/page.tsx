@@ -1,10 +1,11 @@
 import { redirect } from 'next/navigation';
-import { auth, signIn } from '@/auth';
+import { createClient } from '@/lib/supabase/server';
 
 export default async function Home() {
-  const session = await auth();
+  const supabase = await createClient();
+  const { data: { user } } = await supabase.auth.getUser();
 
-  if (session?.user) {
+  if (user) {
     redirect('/chat?tab=chats');
   }
 
@@ -17,7 +18,22 @@ export default async function Home() {
       <form
         action={async () => {
           'use server';
-          await signIn('google', { redirectTo: '/' });
+          const supabase = await createClient();
+          const { data, error } = await supabase.auth.signInWithOAuth({
+            provider: 'google',
+            options: {
+              redirectTo: `${process.env.NEXT_PUBLIC_SITE_URL}/auth/callback`,
+            },
+          });
+
+          if (error) {
+            console.error('Sign in error:', error);
+            return;
+          }
+
+          if (data.url) {
+            redirect(data.url);
+          }
         }}
       >
         <button

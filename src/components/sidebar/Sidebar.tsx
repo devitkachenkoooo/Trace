@@ -1,11 +1,11 @@
-import { auth } from '@/auth';
+import { createClient } from '@/lib/supabase/server';
 import SidebarShell from './SidebarShell';
 
 export default async function Sidebar() {
-  const session = await auth();
-  const userId = session?.user?.id;
+  const supabase = await createClient();
+  const { data: { user } } = await supabase.auth.getUser();
 
-  if (!userId || !session?.user) return null;
+  if (!user) return null;
 
   return <SidebarShell />;
 }

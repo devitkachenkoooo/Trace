@@ -1,7 +1,7 @@
 import '@/wdyr';
 import type { Metadata } from 'next';
 import { Geist, Geist_Mono } from 'next/font/google';
-import { auth } from '@/auth';
+import { createClient } from '@/lib/supabase/server';
 import AuthProvider from '@/components/auth/AuthProvider';
 import ChatLayoutWrapper from '@/components/layout/ChatLayoutWrapper';
 import Providers from '@/components/Providers';
@@ -29,8 +29,8 @@ export default async function RootLayout({
 }: Readonly<{
   children: React.ReactNode;
 }>) {
-  // Отримуємо сесію на рівні сервера
-  const session = await auth();
+  const supabase = await createClient();
+  const { data: { user } } = await supabase.auth.getUser();
 
   return (
     <html lang="en">
@@ -41,8 +41,13 @@ export default async function RootLayout({
           <AuthProvider>
             <RealtimePresence />
             <ChatLayoutWrapper 
-              user={session?.user} 
-              sidebar={session ? <Sidebar /> : null}
+              user={user ? { 
+                id: user.id, 
+                email: user.email, 
+                name: user.user_metadata.full_name || user.user_metadata.name || user.email?.split('@')[0],
+                image: user.user_metadata.avatar_url || user.user_metadata.picture
+              } : null} 
+              sidebar={user ? <Sidebar /> : null}
             >
               {children}
             </ChatLayoutWrapper>

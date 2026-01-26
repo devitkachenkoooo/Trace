@@ -2,7 +2,7 @@
 
 import { MessageSquare, Users } from 'lucide-react';
 import { useRouter, useSearchParams } from 'next/navigation';
-import { useSession } from 'next-auth/react';
+import { useSupabaseAuth } from '../SupabaseAuthProvider';
 import { useEffect } from 'react';
 import { useUpdateLastSeen } from '@/hooks/useChatHooks';
 import ChatList from './ChatList';
@@ -10,11 +10,11 @@ import ContactsList from './ContactsList';
 import SearchInput from './SearchInput';
 
 export default function SidebarShell() {
-  const { data: session } = useSession();
+  const { user } = useSupabaseAuth();
   const router = useRouter();
   const searchParams = useSearchParams();
 
-  useUpdateLastSeen(session?.user?.id);
+  useUpdateLastSeen(user?.id);
 
   const tab = searchParams.get('tab') || 'chats';
   const query = searchParams.get('q') || '';

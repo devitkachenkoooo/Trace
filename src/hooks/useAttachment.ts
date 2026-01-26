@@ -2,7 +2,7 @@
 
 import type { Attachment } from '@/types';
 import imageCompression from 'browser-image-compression';
-import { useSession } from 'next-auth/react';
+import { useSupabaseAuth } from '@/components/SupabaseAuthProvider';
 import { useCallback, useState } from 'react';
 
 export interface PendingAttachment extends Attachment {
@@ -14,7 +14,7 @@ export interface PendingAttachment extends Attachment {
 
 export function useAttachment(chatId: string) {
   const [attachments, setAttachments] = useState<PendingAttachment[]>([]);
-  const { data: session } = useSession();
+  const { user } = useSupabaseAuth();
 
   const uploadFile = useCallback(async (file: File) => {
     const id = crypto.randomUUID();
@@ -34,7 +34,7 @@ export function useAttachment(chatId: string) {
     setAttachments((prev) => [...prev, newAttachment]);
 
     try {
-      if (!session?.user) throw new Error("You must be logged in.");
+      if (!user) throw new Error("You must be logged in.");
 
       // 1. Обробка зображення (стиснення)
       let fileToProcess: File | Blob = file;
@@ -50,16 +50,14 @@ export function useAttachment(chatId: string) {
         }
       }
 
-      // 2. Створюємо FormData (Це виправляє помилку Content-Type)
+      // 2. Створюємо FormData
       const formData = new FormData();
       formData.append('file', fileToProcess, file.name);
-      formData.append('chatId', chatId); // Сервер зможе сам згенерувати шлях
+      formData.append('chatId', chatId);
 
       // 3. Відправка на API Route
       const response = await fetch('/api/upload', {
         method: 'POST',
-        // ВАЖЛИВО: headers з Content-Type прибираємо взагалі! 
-        // Браузер сам поставить multipart/form-data
         body: formData,
       });
 
@@ -80,20 +78,14 @@ export function useAttachment(chatId: string) {
         prev.map((a) => a.id === id ? { ...a, uploading: false, error: err.message } : a)
       );
     }
-  }, [chatId, session]);
+  }, [chatId, user]);
 
-  // Інші функції залишаються майже такими самими, 
-  // але видалення тепер теж краще робити через твій новий серверний Action/API
   const removeAttachment = useCallback(async (id: string) => {
     const attachment = attachments.find((a) => a.id === id);
     if (!attachment) return;
 
     setAttachments((prev) => prev.filter((a) => a.id !== id));
     URL.revokeObjectURL(attachment.previewUrl);
-    
-    // Тут раніше був прямий запит до Supabase Client. 
-    // Оскільки ми вирішили робити все через сервер, 
-    // видалення відбудеться автоматично при видаленні повідомлення.
   }, [attachments]);
 
   const clearAttachments = useCallback(() => {

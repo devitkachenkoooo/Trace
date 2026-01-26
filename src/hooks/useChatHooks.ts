@@ -1,8 +1,6 @@
-import type { RealtimeChannel } from '@supabase/supabase-js';
 import { type InfiniteData, useInfiniteQuery, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { useSession } from 'next-auth/react';
 import { useEffect, useRef, useState } from 'react';
-import { useRouter } from 'next/navigation'; // Додано імпорт
+import { useRouter } from 'next/navigation';
 import type { VirtuosoHandle } from 'react-virtuoso';
 import {
   deleteChatAction,
@@ -15,9 +13,11 @@ import {
   sendMessageAction,
   updateLastSeenAction,
 } from '@/actions/chat-actions';
-import { supabase } from '@/lib/supabase';
+import { createClient } from '@/lib/supabase/client';
 import { usePresenceStore } from '@/store/usePresenceStore';
+import { useSupabaseAuth } from '@/components/SupabaseAuthProvider';
 import type { Attachment, FullChat, Message } from '@/types';
+import type { RealtimeChannel } from '@supabase/supabase-js';
 
 interface DbMessage {
   id: string;
@@ -53,6 +53,7 @@ export function useMessages(chatId: string, currentUserId: string | undefined) {
   const [isTyping, setIsTyping] = useState<Record<string, boolean>>({});
   const channelRef = useRef<RealtimeChannel | null>(null);
   const timeoutsRef = useRef<Record<string, NodeJS.Timeout>>({});
+  const supabase = createClient();
 
   useEffect(() => {
     if (!chatId || !currentUserId) return;
@@ -170,7 +171,7 @@ export function useMessages(chatId: string, currentUserId: string | undefined) {
       supabase.removeChannel(channel);
       channelRef.current = null;
     };
-  }, [chatId, queryClient, currentUserId]);
+  }, [chatId, queryClient, currentUserId, supabase]);
 
   const setTyping = (typing: boolean) => {
     if (
@@ -236,7 +237,7 @@ export function useDeleteMessage(chatId: string) {
 
 export function useDeleteChat() {
   const queryClient = useQueryClient();
-  const router = useRouter(); // Використовуємо роутер
+  const router = useRouter();
 
   return useMutation({
     mutationFn: (chatId: string) => deleteChatAction(chatId),
@@ -251,7 +252,6 @@ export function useDeleteChat() {
       return { previousChats };
     },
     onSuccess: () => {
-      // ПЕРЕМОГА: Редірект після успішного видалення
       router.push('/');
       router.refresh();
     },
@@ -276,16 +276,13 @@ export function useScrollToMessage(
   const [highlightedId, setHighlightedId] = useState<string | null>(null);
   const scrollTargetId = useRef<string | null>(null);
 
-  // Окрема функція для "подвійного" скролу
   const performScroll = (index: number, messageId: string) => {
-    // Крок 1: Миттєвий стрибок, щоб Virtuoso "побачив" елемент і його реальну висоту
     virtuosoRef.current?.scrollToIndex({
       index,
       align: 'center',
       behavior: 'auto'
     });
 
-    // Крок 2: Плавне доведення в центр після Layout Pass
     setTimeout(() => {
       virtuosoRef.current?.scrollToIndex({
         index,
@@ -295,9 +292,8 @@ export function useScrollToMessage(
       setHighlightedId(messageId);
       scrollTargetId.current = null;
       
-      // Прибираємо підсвітку через 3 секунди
       setTimeout(() => setHighlightedId(null), 3000);
-    }, 50); // 50мс достатньо для рендеру в більшості браузерів
+    }, 50);
   };
 
   useEffect(() => {
@@ -337,13 +333,13 @@ export function useChatDetails(chatId: string) {
       return result.data;
     },
     enabled: !!chatId,
-    retry: false, // Не ретраїмо, якщо чату немає (404)
+    retry: false,
   });
 }
 
 export function useSendMessage(chatId: string) {
   const queryClient = useQueryClient();
-  const { data: session } = useSession();
+  const { user } = useSupabaseAuth();
 
   return useMutation({
     mutationFn: ({ 
@@ -362,7 +358,7 @@ export function useSendMessage(chatId: string) {
       const optimisticMessage: Message = {
         id: crypto.randomUUID(),
         chatId,
-        senderId: session?.user?.id || 'me',
+        senderId: user?.id || 'me',
         content,
         attachments,
         replyToId: replyToId,
@@ -424,11 +420,10 @@ export function useSearchUsers(query: string) {
   });
 }
 
-const LAST_SEEN_THROTTLE = 1000 * 60 * 5;
-
 export function useUpdateLastSeen(userId: string | undefined) {
   useEffect(() => {
     if (!userId) return;
+    const LAST_SEEN_THROTTLE = 1000 * 60 * 5;
     const update = async () => {
       const lastUpdate = localStorage.getItem(`lastSeenUpdate:${userId}`);
       const now = Date.now();
