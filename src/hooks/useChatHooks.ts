@@ -1,5 +1,5 @@
 import { type InfiniteData, useInfiniteQuery, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import type { VirtuosoHandle } from 'react-virtuoso';
 import {
@@ -36,6 +36,99 @@ interface DbMessage {
 }
 
 export function useChats() {
+  const queryClient = useQueryClient();
+  const supabase = createClient();
+
+  useEffect(() => {
+    const channel = supabase
+      .channel('global_chats')
+      .on(
+        'postgres_changes',
+        {
+          event: 'INSERT',
+          schema: 'public',
+          table: 'messages',
+        },
+        (payload) => {
+          const newMessage = payload.new as DbMessage;
+          queryClient.setQueryData<FullChat[]>(['chats'], (old) => {
+            if (!old) return old;
+            const chatId = newMessage.chat_id || newMessage.chatId;
+            const chatIndex = old.findIndex((c) => c.id === chatId);
+            
+            if (chatIndex === -1) {
+              // If chat not in list, it might be a new chat
+              queryClient.invalidateQueries({ queryKey: ['chats'] });
+              return old;
+            }
+
+            const newChats = [...old];
+            const updatedChat = { ...newChats[chatIndex] };
+            
+            // Update last message for preview
+            updatedChat.messages = [{
+              id: newMessage.id,
+              content: newMessage.content,
+              createdAt: new Date(newMessage.created_at || newMessage.createdAt || Date.now()),
+              senderId: String(newMessage.sender_id || newMessage.senderId || ''),
+              chatId: String(newMessage.chat_id || newMessage.chatId || ''),
+              isRead: !!(newMessage.is_read || newMessage.isRead),
+              attachments: newMessage.attachments || [],
+            } as Message];
+
+            newChats[chatIndex] = updatedChat;
+            
+            // Move to top
+            const [movedChat] = newChats.splice(chatIndex, 1);
+            newChats.unshift(movedChat);
+            
+            return newChats;
+          });
+        }
+      )
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'chats',
+        },
+        (payload) => {
+          if (payload.eventType === 'INSERT') {
+            queryClient.invalidateQueries({ queryKey: ['chats'] });
+          } else if (payload.eventType === 'UPDATE') {
+            const updatedChat = payload.new as FullChat;
+            queryClient.setQueryData<FullChat[]>(['chats'], (old) => {
+              if (!old) return old;
+              const chatIndex = old.findIndex((c) => c.id === updatedChat.id);
+              if (chatIndex === -1) return old;
+
+              const newChats = [...old];
+              // Update the chat data
+              newChats[chatIndex] = { ...newChats[chatIndex], ...updatedChat };
+              
+              // Top-sort: Move the updated chat to the top
+              const [movedChat] = newChats.splice(chatIndex, 1);
+              newChats.unshift(movedChat);
+              
+              return newChats;
+            });
+          } else if (payload.eventType === 'DELETE') {
+            const deletedId = payload.old.id;
+            queryClient.setQueryData<FullChat[]>(['chats'], (old) => {
+              if (!old) return old;
+              return old.filter((c) => c.id !== deletedId);
+            });
+          }
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [supabase, queryClient]);
+
   return useQuery({
     queryKey: ['chats'],
     queryFn: async () => {
@@ -78,6 +171,7 @@ export function useMessages(chatId: string, currentUserId: string | undefined) {
               if (!old) return old;
               
               const allMessages = old.pages.flat();
+              // Message De-duplication: check if the message id already exists
               if (allMessages.some((m) => m.id === raw.id)) return old;
 
               const parentId = raw.reply_to_id || raw.replyToId;
@@ -119,6 +213,7 @@ export function useMessages(chatId: string, currentUserId: string | undefined) {
                   currentIndex += newPages[i].length;
                 }
               } else {
+                // For a new message, add it to the first page (most recent)
                 const firstPage = [...(newPages[0] || [])];
                 firstPage.push(newMessage);
                 newPages[0] = firstPage;
@@ -127,7 +222,31 @@ export function useMessages(chatId: string, currentUserId: string | undefined) {
               return { ...old, pages: newPages };
             });
 
+            // Automatic Read Receipt: If the user is in the chat and it's from someone else
+            if (raw.sender_id !== currentUserId || raw.senderId !== currentUserId) {
+              markAsReadAction(chatId);
+            }
+
             queryClient.invalidateQueries({ queryKey: ['chats'] });
+          } else if (payload.eventType === 'UPDATE') {
+            const raw = payload.new as DbMessage;
+            queryClient.setQueryData<InfiniteData<Message[], Date | undefined>>(['messages', chatId], (old) => {
+              if (!old) return old;
+              return {
+                ...old,
+                pages: old.pages.map(page => page.map(m => {
+                  if (m.id === raw.id) {
+                    return {
+                      ...m,
+                      content: raw.content ?? m.content,
+                      isRead: !!(raw.is_read ?? raw.isRead ?? m.isRead),
+                      attachments: raw.attachments ?? m.attachments,
+                    };
+                  }
+                  return m;
+                }))
+              };
+            });
           } else if (payload.eventType === 'DELETE') {
             const deletedId = payload.old.id;
             queryClient.setQueryData<InfiniteData<Message[], Date | undefined>>(['messages', chatId], (old) => {
@@ -276,7 +395,7 @@ export function useScrollToMessage(
   const [highlightedId, setHighlightedId] = useState<string | null>(null);
   const scrollTargetId = useRef<string | null>(null);
 
-  const performScroll = (index: number, messageId: string) => {
+  const performScroll = useCallback((index: number, messageId: string) => {
     virtuosoRef.current?.scrollToIndex({
       index,
       align: 'center',
@@ -294,7 +413,7 @@ export function useScrollToMessage(
       
       setTimeout(() => setHighlightedId(null), 3000);
     }, 50);
-  };
+  }, [virtuosoRef]);
 
   useEffect(() => {
     if (scrollTargetId.current) {
@@ -307,7 +426,7 @@ export function useScrollToMessage(
         scrollTargetId.current = null;
       }
     }
-  }, [messages, hasNextPage, fetchNextPage]);
+  }, [messages, hasNextPage, fetchNextPage, performScroll]);
 
   const scrollToMessage = (messageId: string) => {
     const index = messages.findIndex(m => m.id === messageId);
