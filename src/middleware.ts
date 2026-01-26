@@ -2,22 +2,21 @@ import { NextResponse } from 'next/server';
 import { auth } from '@/auth';
 import { LRUCache } from 'lru-cache';
 
-// In-memory rate limiter: 10 запитів на 10 секунд
+// Налаштування лімітів: 10 запитів на 10 секунд
 const rateLimit = new LRUCache<string, number>({
-  max: 1000, // Збільшимо до 1000 юзерів
-  ttl: 10000, // 10 секунд
-  // Важливо: не скидати TTL при кожному зверненні, щоб ліміт був чесним
-  noDisposeOnSet: true, 
+  max: 1000,
+  ttl: 10000,
 });
 
 export default auth((req) => {
   const { pathname } = req.nextUrl;
   
-  // 1. DDoS ЗАХИСТ (API)
+  // Визначаємо IP-адресу через заголовки (стандарт для Vercel)
+  const forwarded = req.headers.get('x-forwarded-for');
+  const ip = forwarded ? forwarded.split(',')[0] : '127.0.0.1';
+
+  // 1. Захист API (DDoS Rate Limiting)
   if (pathname.startsWith('/api')) {
-    // Отримуємо IP (враховуємо проксі Vercel)
-    const ip = req.headers.get('x-forwarded-for')?.split(',')[0] || req.ip || '127.0.0.1';
-    
     const count = rateLimit.get(ip) || 0;
 
     if (count >= 10) {
@@ -27,13 +26,14 @@ export default auth((req) => {
       );
     }
 
-    // Збільшуємо лічильник, зберігаючи час життя (TTL)
-    rateLimit.set(ip, count + 1, { ttl: rateLimit.getRemainingTTL?.(ip) || 10000 });
+    rateLimit.set(ip, count + 1);
   }
 
-  // 2. АВТОРИЗАЦІЯ (CHAT)
+  // 2. Захист сторінок чату (Авторизація)
   const isLoggedIn = !!req.auth;
-  if (pathname.startsWith('/chat') && !isLoggedIn) {
+  const isOnChatPage = pathname.startsWith('/chat');
+
+  if (isOnChatPage && !isLoggedIn) {
     return NextResponse.redirect(new URL('/', req.nextUrl));
   }
 
@@ -41,13 +41,6 @@ export default auth((req) => {
 });
 
 export const config = {
-  matcher: [
-    /*
-     * Виключаємо:
-     * - _next/static (статичні файли)
-     * - _next/image (оптимізація зображень)
-     * - favicon.ico (іконка)
-     */
-    '/((?!_next/static|_next/image|favicon.ico).*)',
-  ],
+  // Матчер, який покриває все, крім статичних файлів
+  matcher: ['/((?!_next/static|_next/image|favicon.ico).*)'],
 };
