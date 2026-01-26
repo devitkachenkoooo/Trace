@@ -23,11 +23,11 @@ async function getCurrentUser() {
       return null;
     }
 
-    // Отримуємо дані з метаданих Google безпечно через опціональний ланцюжок
+    // Безпечне отримання метаданих
     const userName = user.user_metadata?.full_name || user.user_metadata?.name || user.email?.split('@')[0] || 'Користувач';
     const userImage = user.user_metadata?.avatar_url || user.user_metadata?.picture || null;
 
-    // Вставляємо або оновлюємо користувача (Upsert)
+    // Синхронізація з Drizzle (Upsert)
     const [dbUser] = await db
       .insert(users)
       .values({
@@ -189,33 +189,45 @@ export async function getOrCreateChatAction(targetUserId: string) {
   if (!user?.id) throw new Error('Unauthorized');
 
   const myId = user.id;
+  let targetChatId: string | null = null;
 
-  const existingChat = await db.query.chats.findFirst({
-    where: or(
-      and(eq(chats.userId, myId), eq(chats.recipientId, targetUserId)),
-      and(eq(chats.userId, targetUserId), eq(chats.recipientId, myId)),
-    ),
-  });
+  try {
+    const existingChat = await db.query.chats.findFirst({
+      where: or(
+        and(eq(chats.userId, myId), eq(chats.recipientId, targetUserId)),
+        and(eq(chats.userId, targetUserId), eq(chats.recipientId, myId)),
+      ),
+    });
 
-  if (existingChat) {
-    redirect(`/chat/${existingChat.id}`);
+    if (existingChat) {
+      targetChatId = existingChat.id;
+    } else {
+      const targetUser = await db.query.users.findFirst({
+        where: eq(users.id, targetUserId),
+      });
+
+      const [newChat] = await db
+        .insert(chats)
+        .values({
+          userId: myId,
+          recipientId: targetUserId,
+          title: targetUser?.name || 'Приватний чат',
+        })
+        .returning();
+      
+      targetChatId = newChat.id;
+    }
+  } catch (error) {
+    console.error('Error in getOrCreateChatAction:', error);
+    // Ми не редиректимо при помилці, щоб не висіла загрузка без причини
+    throw new Error('Failed to create or find chat');
   }
 
-  const targetUser = await db.query.users.findFirst({
-    where: eq(users.id, targetUserId),
-  });
-
-  const [newChat] = await db
-    .insert(chats)
-    .values({
-      userId: myId,
-      recipientId: targetUserId,
-      title: targetUser?.name || 'Приватний чат',
-    })
-    .returning();
-
-  revalidatePath('/');
-  redirect(`/chat/${newChat.id}`);
+  // Редирект має бути в самому кінці, поза try/catch
+  if (targetChatId) {
+    revalidatePath('/chat');
+    redirect(`/chat/${targetChatId}`);
+  }
 }
 
 export async function sendMessageAction(
@@ -360,7 +372,7 @@ export async function deleteChatAction(
 
     await db.delete(chats).where(eq(chats.id, chatId));
 
-    revalidatePath('/');
+    revalidatePath('/chat');
     return { success: true };
   } catch (error) {
     console.error('Error deleting chat:', error);
