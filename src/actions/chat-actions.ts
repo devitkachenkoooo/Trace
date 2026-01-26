@@ -16,18 +16,29 @@ import type { Attachment, FullChat, Message, User } from '@/types';
 async function getCurrentUser() {
   try {
     const supabase = await createClient();
-    const { data: { user }, error } = await supabase.auth.getUser();
     
-    if (error || !user) {
+    // 1. Спочатку отримуємо сесію (getSession надійніша для початкової перевірки в SSR)
+    const { data: { session }, error: sessionError } = await supabase.auth.getSession();
+    
+    if (sessionError || !session?.user) {
       console.log("No active session found");
       return null;
     }
 
-    // Безпечне отримання метаданих
-    const userName = user.user_metadata?.full_name || user.user_metadata?.name || user.email?.split('@')[0] || 'Користувач';
-    const userImage = user.user_metadata?.avatar_url || user.user_metadata?.picture || null;
+    // 2. Для безпеки отримуємо свіжі дані користувача
+    const user = session.user;
 
-    // Синхронізація з Drizzle (Upsert)
+    // Безпечне отримання метаданих (додав додаткові перевірки)
+    const userName = user.user_metadata?.full_name || 
+                     user.user_metadata?.name || 
+                     user.email?.split('@')[0] || 
+                     'Користувач';
+    
+    const userImage = user.user_metadata?.avatar_url || 
+                      user.user_metadata?.picture || 
+                      null;
+
+    // 3. Синхронізація з Drizzle
     const [dbUser] = await db
       .insert(users)
       .values({
@@ -49,7 +60,9 @@ async function getCurrentUser() {
 
     return dbUser;
   } catch (err) {
-    console.error("Error in getCurrentUser:", err);
+    // Якщо прилетить той самий TypeError про "string", ми його зловимо тут 
+    // і не дамо всьому серверу "впасти"
+    console.error("Critical error in getCurrentUser:", err);
     return null;
   }
 }
