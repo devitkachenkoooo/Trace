@@ -69,7 +69,9 @@ export default function ChatInput({
       await sendMessage.mutateAsync({ 
         content: trimmed, 
         replyToId: replyToId || undefined,
-        attachments: attachmentsBackup.map(({ id, type, url, metadata }) => ({ id, type, url, metadata }))
+        attachments: attachmentsBackup
+          .filter(a => a.url && !a.error && !a.uploading)
+          .map(({ id, type, url, metadata }) => ({ id, type, url, metadata }))
       });
       if (onMessageSent) onMessageSent();
     } catch (error) {

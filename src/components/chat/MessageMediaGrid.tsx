@@ -30,12 +30,12 @@ export function MessageMediaGrid({ images }: MessageMediaGridProps) {
   };
 
   const DeletedPlaceholder = ({ name }: { name: string }) => (
-    <div className="flex flex-col items-center justify-center w-full h-full bg-neutral-900/80 border border-white/5 rounded-xl p-4 text-center min-h-[150px]">
+    <div className="flex flex-col items-center justify-center w-full h-full bg-neutral-900/80 border border-white/5 rounded-xl p-4 text-center min-h-[150px] min-w-[200px]">
       <div className="w-10 h-10 rounded-full bg-white/5 flex items-center justify-center mb-2">
         <Clock className="w-5 h-5 text-white/40" />
       </div>
       <p className="text-[11px] text-white/40 font-medium uppercase tracking-widest">
-        Media expired after 24h
+        Media expired
       </p>
       <p className="text-[10px] text-white/20 mt-1 truncate max-w-full">
         {name}
@@ -43,18 +43,18 @@ export function MessageMediaGrid({ images }: MessageMediaGridProps) {
     </div>
   );
 
-  // 1 IMAGE - Робимо її великою, але стриманою за висотою
+  // --- 1 КАРТИНКА (Робимо впевнено великою) ---
   if (count === 1) {
     const img = images[0];
     return (
       <>
-        <div className="relative group max-w-full">
+        <div className="relative group max-w-full min-w-[260px] sm:min-w-[320px]">
           {img.isDeleted ? (
             <DeletedPlaceholder name={img.metadata.name} />
           ) : (
             <button 
               type="button"
-              className="relative rounded-2xl overflow-hidden border border-white/10 bg-white/5 cursor-pointer hover:opacity-95 transition-all duration-300 block w-full group"
+              className="relative rounded-2xl overflow-hidden border border-white/10 bg-white/5 cursor-pointer hover:opacity-95 transition-all duration-300 block w-full group min-h-[180px]"
               onClick={() => handleImageClick(0)}
             >
               <Image
@@ -62,7 +62,7 @@ export function MessageMediaGrid({ images }: MessageMediaGridProps) {
                 alt={img.metadata.name}
                 width={800}
                 height={600}
-                className="w-full h-auto max-h-[500px] object-contain"
+                className="w-full h-auto max-h-[450px] object-contain min-h-[180px] bg-neutral-900/20"
                 unoptimized
               />
               <div className="absolute inset-0 bg-black/0 group-hover:bg-black/10 transition-colors" />
@@ -79,15 +79,16 @@ export function MessageMediaGrid({ images }: MessageMediaGridProps) {
     );
   }
 
-  // MULTI GRID
+  // --- МУЛЬТИ-СІТКА (2+ картинки) ---
   const displayImages = images.slice(0, 4);
-  // Математика: якщо всього 6, а ми показуємо 4, то залишається 2 схованих поза сіткою.
   const remaining = count - 4;
 
   return (
     <>
       <div className={cn(
         "grid gap-1 rounded-2xl overflow-hidden border border-white/10 bg-white/5 w-full",
+        // Мінімальна ширина для сітки, щоб не перетворювалася на мікро-іконки
+        "min-w-[210px] sm:min-w-[260px]",
         count === 2 ? "grid-cols-2 aspect-[16/10]" : "grid-cols-2 aspect-square"
       )}>
         {displayImages.map((img, i) => {
