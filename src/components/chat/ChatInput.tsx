@@ -27,31 +27,38 @@ export default function ChatInput({
   const [content, setContent] = useState('');
   const { attachments, uploadFile, removeAttachment, clearAttachments, isUploading } =
     useAttachment(chatId);
+  
+  // Використовуємо оновлений хук з Optimistic UI
   const sendMessage = useSendMessage(chatId);
 
-  // Міняємо тип рефа на HTMLTextAreaElement
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const queryClient = useQueryClient();
 
-  // Автоматичне розширення висоти
+  // Автоматична висота textarea
   useEffect(() => {
     const textarea = textareaRef.current;
-    if (textarea && content !== undefined) {
-      textarea.style.height = 'inherit'; // Скидаємо висоту, щоб правильно вирахувати scrollHeight
+    if (textarea) {
+      textarea.style.height = 'inherit';
       const scrollHeight = textarea.scrollHeight;
-      // Обмежуємо максимальну висоту (наприклад, 200px)
       textarea.style.height = `${Math.min(scrollHeight, 200)}px`;
     }
   }, [content]);
 
+  // Знаходимо повідомлення для реплаю в кеші
   const replyToMessage = useMemo(() => {
     if (!replyToId) return null;
-    const data = queryClient.getQueryData<InfiniteData<Message[], Date | undefined>>([
+
+    // Чітко вказуємо тип даних у кеші: InfiniteData, що містить масиви Message
+    const data = queryClient.getQueryData<InfiniteData<Message[]>>([
       'messages',
       chatId,
     ]);
-    if (!data) return null;
+
+    if (!data?.pages) return null;
+
+    // .flat() збирає всі повідомлення з усіх сторінок в один масив
+    // .find() шукає той самий об'єкт, який чекає ComposerAddons
     return data.pages.flat().find((m) => m.id === replyToId) || null;
   }, [replyToId, chatId, queryClient]);
 
@@ -60,32 +67,37 @@ export default function ChatInput({
     const trimmed = content.trim();
     const hasAttachments = attachments.length > 0;
 
-    if ((!trimmed && !hasAttachments) || sendMessage.isPending || isUploading) return;
+    // Валідація
+    if ((!trimmed && !hasAttachments) || isUploading) return;
 
+    // 1. Очищуємо UI миттєво (для відчуття швидкості)
     setContent('');
     setTyping(false);
     if (onReplyCancel) onReplyCancel();
 
-    const attachmentsBackup = [...attachments];
+    const attachmentsBackup = attachments
+      .filter((a) => a.url && !a.error && !a.uploading)
+      .map(({ id, type, url, metadata }) => ({ id, type, url, metadata }));
+    
     clearAttachments();
 
     try {
+      // 2. Викликаємо мутацію (ID згенерується всередині хука)
       await sendMessage.mutateAsync({
         content: trimmed,
         replyToId: replyToId || undefined,
-        attachments: attachmentsBackup
-          .filter((a) => a.url && !a.error && !a.uploading)
-          .map(({ id, type, url, metadata }) => ({ id, type, url, metadata })),
+        attachments: attachmentsBackup,
       });
+      
       if (onMessageSent) onMessageSent();
     } catch (error) {
-      console.error('Failed to send message:', error);
+      // Якщо впало — повертаємо текст назад, щоб юзер не втратив повідомлення
+      console.error('Failed to send:', error);
       setContent(trimmed);
     }
   };
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
-    // Надсилаємо на Enter, але робимо перенос на Shift + Enter
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();
       handleSubmit();
@@ -93,15 +105,13 @@ export default function ChatInput({
   };
 
   useEffect(() => {
-    if (content !== undefined) setTyping(content.length > 0);
+    setTyping(content.length > 0);
   }, [content, setTyping]);
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = e.target.files;
     if (files) {
-      for (let i = 0; i < files.length; i++) {
-        uploadFile(files[i]);
-      }
+      Array.from(files).forEach(uploadFile);
     }
     e.target.value = '';
   };
@@ -109,16 +119,13 @@ export default function ChatInput({
   const isButtonVisible = content.trim().length > 0 || attachments.length > 0;
 
   return (
-    <div
-      className="flex flex-col border-t border-white/10 backdrop-blur-xl bg-black/40"
-      style={{ willChange: 'transform' }}
-    >
+    <div className="flex flex-col relative" style={{ willChange: 'transform' }}>
       <ComposerAddons
         attachments={attachments}
         onAttachmentRemove={removeAttachment}
         replyTo={replyToMessage}
         onReplyCancel={onReplyCancel}
-        otherParticipantName="User"
+        otherParticipantName="Співрозмовник" 
       />
 
       <form onSubmit={handleSubmit} className="p-3 sm:p-4 flex gap-2 items-end">
@@ -134,7 +141,8 @@ export default function ChatInput({
         <button
           type="button"
           onClick={() => fileInputRef.current?.click()}
-          className="p-3 mb-0.5 rounded-full text-gray-400 hover:bg-white/10 transition-all duration-300"
+          className="p-3 mb-0.5 rounded-full text-gray-400 hover:bg-white/10 hover:text-white transition-all"
+          title="Додати файл"
         >
           <Paperclip size={20} />
         </button>
@@ -146,11 +154,10 @@ export default function ChatInput({
             value={content}
             onChange={(e) => setContent(e.target.value)}
             onKeyDown={handleKeyDown}
-            placeholder="Type a message..."
-            disabled={sendMessage.isPending}
+            placeholder="Напишіть повідомлення..."
             className={cn(
-              'w-full bg-white/5 border border-white/10 rounded-2xl px-4 sm:px-5 py-2.5 sm:py-3 text-sm text-white placeholder:text-gray-500',
-              'focus:outline-none focus:border-blue-500 transition-all duration-300 disabled:opacity-50',
+              'w-full bg-white/5 border border-white/10 rounded-2xl px-4 py-2.5 text-sm text-white placeholder:text-gray-500',
+              'focus:outline-none focus:border-blue-500/50 transition-all duration-300',
               'resize-none overflow-y-auto leading-relaxed',
             )}
             style={{ minHeight: '44px' }}
@@ -160,15 +167,10 @@ export default function ChatInput({
         {isButtonVisible && (
           <button
             type="submit"
-            disabled={
-              sendMessage.isPending || isUploading || (!content.trim() && attachments.length === 0)
-            }
-            className="p-3 mb-0.5 rounded-full bg-blue-600 text-white hover:bg-blue-500 disabled:opacity-50 disabled:hover:bg-blue-600 transition-all duration-300 shadow-lg shadow-blue-600/20 shrink-0"
+            disabled={isUploading || (!content.trim() && attachments.length === 0)}
+            className="p-3 mb-0.5 rounded-full bg-blue-600 text-white hover:bg-blue-500 disabled:opacity-50 transition-all shadow-lg shadow-blue-600/20 shrink-0"
           >
-            <Send
-              size={20}
-              className={sendMessage.isPending || isUploading ? 'animate-pulse' : ''}
-            />
+            <Send size={20} className={isUploading ? 'animate-pulse' : ''} />
           </button>
         )}
       </form>

@@ -111,8 +111,12 @@ export function useGlobalRealtime() {
                   replyTo: undefined,
                   attachments: rawMessage.attachments || []
                 };
+
                 const newPages = [...oldData.pages];
-                newPages[0] = [normalizedMsg, ...newPages[0]];
+                const lastIdx = newPages.length - 1;
+                // Додаємо в КІНЕЦЬ останньої сторінки (хронологічний порядок)
+                newPages[lastIdx] = [...newPages[lastIdx], normalizedMsg];
+                
                 return { ...oldData, pages: newPages };
               });
             }

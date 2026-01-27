@@ -32,9 +32,9 @@ export default function ChatPage({ params }: { params: Promise<{ id: string }> }
   const {
     data: messagesData,
     isLoading: isMessagesLoading,
-    fetchNextPage,
-    hasNextPage,
-    isFetchingNextPage,
+    fetchPreviousPage,
+    hasPreviousPage,
+    isFetchingPreviousPage,
   } = useMessages(id);
 
   // 2. Отримуємо логіку тайпінгу окремо
@@ -50,8 +50,8 @@ const { isTyping: typingUsers, setTyping } = useChatTyping(id);
   const { scrollToMessage, highlightedId } = useScrollToMessage(
     virtuosoRef,
     messages,
-    fetchNextPage,
-    hasNextPage,
+    fetchPreviousPage,
+    hasPreviousPage,
   );
 
   const [replyingTo, setReplyingTo] = useState<Message | null>(null);
@@ -129,54 +129,66 @@ const { isTyping: typingUsers, setTyping } = useChatTyping(id);
 
       {/* Messages Area */}
       <div className="flex-1 relative min-h-0">
-        <Virtuoso
-          ref={virtuosoRef}
-          data={messages}
-          initialTopMostItemIndex={messages.length - 1}
-          followOutput={'auto'}
-          className="no-scrollbar"
-          atBottomStateChange={(atBottom) => {
-            setShowScrollButton(!atBottom);
-          }}
-          startReached={() => {
-            if (hasNextPage && !isFetchingNextPage) {
-              fetchNextPage();
-            }
-          }}
-          itemContent={(_index, message) => (
-            <div className="px-2 sm:px-6 lg:px-8 max-w-5xl mx-auto w-full py-0.5">
-              <MessageBubble
-                key={message.id}
-                message={message}
-                currentUserId={user?.id}
-                onReply={handleReply}
-                onDelete={setMessageToDelete}
-                onScrollToMessage={scrollToMessage}
-                isHighlighed={highlightedId === message.id}
-                otherParticipantName={otherParticipant?.name || undefined}
-              />
+        {messages.length === 0 && !isMessagesLoading ? (
+          <div className="absolute inset-0 flex flex-col items-center justify-center text-center p-4 animate-in fade-in zoom-in duration-500">
+            <div className="w-20 h-20 bg-white/5 rounded-3xl flex items-center justify-center mb-4 border border-white/10 shadow-2xl">
+              <span className="text-3xl">💬</span>
             </div>
-          )}
-          components={{
-            Header: () => (
-              <div className="py-10 text-center">
-                {isFetchingNextPage ? (
-                  <span className="text-[10px] text-gray-600 uppercase tracking-widest">
-                    Завантаження повідомлень...
-                  </span>
-                ) : !hasNextPage && messages.length > 0 ? (
-                  <span className="text-[10px] text-gray-600 uppercase tracking-widest opacity-50 italic">
-                    Початок історії
-                  </span>
-                ) : null}
+            <h3 className="text-white font-semibold text-lg mb-1">Поки що порожньо</h3>
+            <p className="text-gray-500 text-sm max-w-[280px] leading-relaxed">
+              Ваша історія повідомлень з {otherParticipant?.name || 'користувачем'} розпочнеться тут. Напишіть щось!
+            </p>
+          </div>
+        ) : (
+          <Virtuoso
+            ref={virtuosoRef}
+            data={messages}
+            initialTopMostItemIndex={Math.max(0, messages.length - 1)}
+            followOutput="auto"
+            className="no-scrollbar"
+            atBottomStateChange={(atBottom) => {
+              setShowScrollButton(!atBottom);
+            }}
+            startReached={() => {
+              if (hasPreviousPage && !isFetchingPreviousPage) {
+                fetchPreviousPage();
+              }
+            }}
+            itemContent={(_index, message) => (
+              <div className="px-2 sm:px-6 lg:px-8 max-w-5xl mx-auto w-full py-0.5">
+                <MessageBubble
+                  key={message.id}
+                  message={message}
+                  currentUserId={user?.id}
+                  onReply={handleReply}
+                  onDelete={setMessageToDelete}
+                  onScrollToMessage={scrollToMessage}
+                  isHighlighed={highlightedId === message.id}
+                  otherParticipantName={otherParticipant?.name || undefined}
+                />
               </div>
-            ),
-            Footer: () => <div className="h-4" />,
-          }}
-        />
+            )}
+            components={{
+              Header: () => (
+                <div className="py-10 text-center">
+                  {isFetchingPreviousPage ? (
+                    <span className="text-[10px] text-gray-600 uppercase tracking-widest">
+                      Завантаження повідомлень...
+                    </span>
+                  ) : !hasPreviousPage && messages.length > 0 ? (
+                    <span className="text-[10px] text-gray-600 uppercase tracking-widest opacity-50 italic">
+                      Початок історії
+                    </span>
+                  ) : null}
+                </div>
+              ),
+              Footer: () => <div className="h-4" />,
+            }}
+          />
+        )}
 
         <AnimatePresence>
-          {showScrollButton && (
+          {showScrollButton && messages.length > 0 && (
             <motion.button
               initial={{ opacity: 0, scale: 0.8 }}
               animate={{ opacity: 1, scale: 1 }}
@@ -200,7 +212,7 @@ const { isTyping: typingUsers, setTyping } = useChatTyping(id);
         <div className="max-w-5xl mx-auto px-1.5 sm:px-4 py-2 sm:py-4">
           <ChatInput
             chatId={id}
-            setTyping={setTyping} // Передаємо функцію в інпут
+            setTyping={setTyping}
             replyToId={replyingTo?.id}
             onReplyCancel={() => setReplyingTo(null)}
             onMessageSent={() => {

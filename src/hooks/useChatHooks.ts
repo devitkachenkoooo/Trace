@@ -126,25 +126,29 @@ export function useMessages(chatId: string) {
       if (!chatId) return [];
       const { data, error } = await supabase
         .from('messages')
-        .select('*, replyTo:messages!messagesReplyToIdFkey(id, content, sender:user!sender_id(name))')
+        .select('*, replyTo:messages!reply_to_id(*)')
         .eq('chat_id', chatId)
         .order('created_at', { ascending: false })
         .limit(50)
         .lt('created_at', pageParam || '9999-12-31');
 
       if (error) throw error;
-      return data;
+      return (data || []).reverse();
     },
     initialPageParam: undefined as string | undefined,
-    getNextPageParam: (lastPage) => {
-      if (!lastPage || lastPage.length < 50) return undefined;
-      return lastPage[lastPage.length - 1].created_at;
+    // Ми використовуємо getPreviousPageParam, щоб старіші повідомлення додавалися в ПОЧАТОК масиву pages.
+    // Таким чином flat() завжди буде [Older...Newest].
+    getPreviousPageParam: (firstPage) => {
+      if (!firstPage || firstPage.length < 50) return undefined;
+      return firstPage[0].created_at;
     },
+    getNextPageParam: () => undefined,
     enabled: !!chatId,
     refetchOnWindowFocus: false,
   });
 
-  const latestMessage = query.data?.pages[0]?.[0];
+  const pages = query.data?.pages || [];
+  const latestMessage = pages.length > 0 ? pages[pages.length - 1][pages[pages.length - 1].length - 1] : null;
 
   useEffect(() => {
     // Розпаковуємо значення для чіткості, щоб Biome не плутався
@@ -257,6 +261,7 @@ export function useChatTyping(chatId: string) {
 // 5. Відправка повідомлення
 export function useSendMessage(chatId: string) {
   const { user } = useSupabaseAuth();
+  const queryClient = useQueryClient();
 
   return useMutation({
     mutationFn: async ({ 
@@ -269,20 +274,78 @@ export function useSendMessage(chatId: string) {
       attachments?: { id: string; type: string; url: string; metadata: any }[];
     }) => {
       if (!user) throw new Error('Ви не авторизовані');
+
+      const messageId = crypto.randomUUID();
+
       const { error } = await supabase.from('messages').insert({
-        chatId,
-        senderId: user.id,
+        id: messageId,
+        chat_id: chatId,
+        sender_id: user.id,
         content,
-        replyToId,
+        reply_to_id: replyToId || null,
         attachments: attachments || [],
       });
+
       if (error) throw error;
+      return { id: messageId, content, replyToId, attachments };
     },
-    onSuccess: () => {
-      // Real-time listener in useGlobalRealtime handles cache updates
+
+    onMutate: async (newMessage) => {
+      await queryClient.cancelQueries({ queryKey: ['messages', chatId] });
+      const previousData = queryClient.getQueryData(['messages', chatId]);
+
+      const allMessages = (previousData as any)?.pages?.flat() || [];
+      const parentMessage = newMessage.replyToId 
+        ? allMessages.find((m: any) => m.id === newMessage.replyToId)
+        : null;
+
+      const optimisticMessage = {
+        id: crypto.randomUUID(),
+        content: newMessage.content,
+        senderId: user?.id, 
+        sender_id: user?.id,
+        chatId: chatId,
+        chat_id: chatId,
+        createdAt: new Date().toISOString(),
+        replyToId: newMessage.replyToId || null,
+        reply_to_id: newMessage.replyToId || null,
+        replyTo: parentMessage ? {
+          id: parentMessage.id,
+          content: parentMessage.content,
+          sender: parentMessage.sender
+        } : null,
+        attachments: newMessage.attachments || [],
+        is_read: false,
+      };
+
+      queryClient.setQueryData(['messages', chatId], (old: any) => {
+        if (!old || !old.pages || old.pages.length === 0) {
+          return { pages: [[optimisticMessage]], pageParams: [undefined] };
+        }
+        
+        const newPages = [...old.pages];
+        const lastIdx = newPages.length - 1;
+        
+        // Додаємо в КІНЕЦЬ останньої сторінки (хронологічний порядок)
+        newPages[lastIdx] = [...newPages[lastIdx], optimisticMessage];
+  
+        return { ...old, pages: newPages };
+      });
+
+      return { previousData };
     },
-    onError: (error: Error) => {
+
+    onError: (error: Error, newMessage, context) => {
+      if (context?.previousData) {
+        queryClient.setQueryData(['messages', chatId], context.previousData);
+      }
       toast.error(`Помилка відправки: ${error.message}`);
+    },
+
+    onSettled: () => {
+      // Важливо: не інвалідуємо відразу, якщо realtime вже вставив повідомлення,
+      // але для впевненості можна залишити.
+      queryClient.invalidateQueries({ queryKey: ['messages', chatId] });
     }
   });
 }
@@ -346,8 +409,8 @@ export function useUpdateLastSeen() {
 export function useScrollToMessage(
   virtuosoRef: React.RefObject<any>,
   messages: Message[],
-  fetchNextPage: () => void,
-  hasNextPage: boolean,
+  fetchPreviousPage: () => void,
+  hasPreviousPage: boolean,
 ) {
   const [highlightedId, setHighlightedId] = useState<string | null>(null);
 
@@ -364,13 +427,13 @@ export function useScrollToMessage(
         setHighlightedId(messageId);
         setTimeout(() => setHighlightedId(null), 2000);
       } else {
-        if (hasNextPage) {
-          fetchNextPage();
+        if (hasPreviousPage) {
+          fetchPreviousPage();
           toast.info('Підвантажуємо історію...');
         }
       }
     },
-    [messages, hasNextPage, fetchNextPage, virtuosoRef],
+    [messages, hasPreviousPage, fetchPreviousPage, virtuosoRef],
   );
 
   return { scrollToMessage, highlightedId };

@@ -1,11 +1,10 @@
-import { relations } from 'drizzle-orm';
+import { relations, type AnyColumn } from 'drizzle-orm';
 import { boolean, jsonb, pgTable, text, timestamp } from 'drizzle-orm/pg-core';
 import type { Attachment } from '@/types';
 
-// --- ТАБЛИЦЯ КОРИСТУВАЧІВ (Узгоджена з Supabase) ---
-
+// --- ТАБЛИЦЯ КОРИСТУВАЧІВ ---
 export const users = pgTable('user', {
-  id: text('id').primaryKey(), // Supabase Auth UID
+  id: text('id').primaryKey(),
   name: text('name'),
   email: text('email').notNull().unique(),
   emailVerified: timestamp('emailVerified', { mode: 'date' }),
@@ -13,8 +12,7 @@ export const users = pgTable('user', {
   lastSeen: timestamp('last_seen', { mode: 'date' }).defaultNow(),
 });
 
-// --- ТАБЛИЦІ ЧАТІВ ТА ПОВІДОМЛЕНЬ ---
-
+// --- ТАБЛИЦІ ЧАТІВ ---
 export const chats = pgTable('chats', {
   id: text('id')
     .primaryKey()
@@ -27,6 +25,7 @@ export const chats = pgTable('chats', {
   createdAt: timestamp('created_at').notNull().defaultNow(),
 });
 
+// --- ТАБЛИЦЯ ПОВІДОМЛЕНЬ ---
 export const messages = pgTable('messages', {
   id: text('id')
     .primaryKey()
@@ -39,11 +38,15 @@ export const messages = pgTable('messages', {
     .references(() => users.id, { onDelete: 'cascade' }),
   content: text('content'),
   attachments: jsonb('attachments').$type<Attachment[]>().notNull().default([]),
-  replyToId: text('reply_to_id'),
+  
+  // Виправлено: використовуємо (col) => col для уникнення циклічної залежності
+  replyToId: text('reply_to_id').references((): any => messages.id, { onDelete: 'set null' }),
+  
   isRead: boolean('is_read').notNull().default(false),
   createdAt: timestamp('created_at').notNull().defaultNow(),
 });
 
+// --- ВІДНОСИНИ (RELATIONS) ---
 export const usersRelations = relations(users, ({ many }) => ({
   chats: many(chats),
   messages: many(messages),
