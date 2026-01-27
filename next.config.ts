@@ -1,5 +1,10 @@
 const nextConfig = {
   reactCompiler: true,
+  logging: {
+    fetches: {
+      fullUrl: true,
+    },
+  },
   images: {
     remotePatterns: [
       {

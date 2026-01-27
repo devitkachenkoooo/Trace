@@ -1,71 +1,185 @@
 'use client';
 
-import { useEffect, useRef } from 'react';
-import { useQueryClient } from '@tanstack/react-query';
-import { createClient } from '@/lib/supabase/client';
-import { useSupabaseAuth } from '@/components/SupabaseAuthProvider';
+import { type InfiniteData, useQueryClient } from '@tanstack/react-query';
 import { usePathname } from 'next/navigation';
+import { useEffect, useRef } from 'react';
+import { useSupabaseAuth } from '@/components/SupabaseAuthProvider';
+import { createClient } from '@/lib/supabase/client';
+import { usePresenceStore } from '@/store/usePresenceStore';
+import type { FullChat, Message } from '@/types';
+
+// Singleton Supabase client
+const supabase = createClient();
 
 export function useGlobalRealtime() {
   const { user } = useSupabaseAuth();
   const queryClient = useQueryClient();
-  const supabase = createClient();
   const pathname = usePathname();
-  const notificationPermissionRef = useRef<NotificationPermission | null>(null);
+  const setOnlineUsers = usePresenceStore((state) => state.setOnlineUsers);
+
+  // Refs for current values accessible inside closures/effects
+  const pathnameRef = useRef(pathname);
+  const userRef = useRef(user);
 
   useEffect(() => {
-    if (typeof window !== 'undefined' && 'Notification' in window) {
-      if (Notification.permission === 'default') {
-        Notification.requestPermission().then((permission) => {
-          notificationPermissionRef.current = permission;
-        });
-      } else {
-        notificationPermissionRef.current = Notification.permission;
-      }
-    }
-  }, []);
+    pathnameRef.current = pathname;
+  }, [pathname]);
 
   useEffect(() => {
-    if (!user) return;
+    userRef.current = user;
+  }, [user]);
 
-    const channel = supabase
-      .channel('global_messages')
+
+  useEffect(() => {
+    if (!user?.id) return;
+
+    const userId = user.id;
+
+    console.log(`🔌 [GlobalRealtime] Initializing for user: ${userId}`);
+
+    // --- 1. Global Presence Channel ---
+    const presenceChannel = supabase.channel('global-presence', {
+      config: {
+        presence: { key: userId },
+      },
+    });
+
+    presenceChannel
+      .on('presence', { event: 'sync' }, () => {
+        const state = presenceChannel.presenceState();
+        const onlineIds = new Set<string>();
+        for (const key of Object.keys(state)) {
+          onlineIds.add(key);
+        }
+        setOnlineUsers(onlineIds);
+      })
+      .subscribe(async (status) => {
+        if (status === 'SUBSCRIBED') {
+          await presenceChannel.track({
+            user_id: userId,
+            online_at: new Date().toISOString(),
+          });
+        }
+      });
+
+    // --- 2. Global Messages Channel (Optimistic Updates) ---
+    const messagesChannel = supabase
+      .channel(`global-messages-${userId}`)
       .on(
         'postgres_changes',
         {
-          event: 'INSERT',
+          event: '*',
           schema: 'public',
           table: 'messages',
         },
         async (payload) => {
-          const newMessage = payload.new;
-          
-          // Only process messages not sent by the current user
-          if (newMessage.sender_id === user.id || newMessage.senderId === user.id) return;
+          const rawMessage = (payload.new || payload.old) as any;
+          const chatId = rawMessage.chat_id || rawMessage.chatId;
+          const messageId = rawMessage.id;
 
-          // Check if we are currently in this chat
-          const activeChatId = pathname.startsWith('/chat/') ? pathname.split('/').pop() : null;
-          const isCurrentChat = activeChatId === newMessage.chat_id || activeChatId === newMessage.chatId;
+          if (payload.eventType === 'INSERT') {
+            // 1. Update Chat List (Move to top)
+            queryClient.setQueryData<FullChat[]>(['chats'], (oldChats) => {
+              if (!oldChats) return oldChats;
+              const chatIndex = oldChats.findIndex((c) => c.id === chatId);
+              if (chatIndex === -1) return oldChats;
 
-          // If not in the current chat, we should notify the user and refresh the chat list
-          if (!isCurrentChat) {
-            // Refresh chats list to update unread badge and preview
-            queryClient.invalidateQueries({ queryKey: ['chats'] });
+              const updatedChat = { ...oldChats[chatIndex] };
+              const newChats = [...oldChats];
+              newChats.splice(chatIndex, 1);
+              newChats.unshift(updatedChat);
+              return newChats;
+            });
 
-            // Trigger browser notification if possible
-            if (notificationPermissionRef.current === 'granted' && document.visibilityState !== 'visible') {
-              new Notification('Нове повідомлення', {
-                body: newMessage.content || '📎 Медіафайл',
-                icon: '/logo.png', // Fallback to logo or user image if available
+            // 2. Update Message List (if active)
+            const activePath = pathnameRef.current;
+            const activeChatId = activePath?.startsWith('/chat/') ? activePath.split('/').pop() : null;
+
+            if (activeChatId === chatId) {
+              queryClient.setQueryData<InfiniteData<Message[]>>(['messages', chatId], (oldData) => {
+                if (!oldData || !oldData.pages || oldData.pages.length === 0) return oldData;
+                const exists = oldData.pages.some(page => page.some(m => m.id === messageId));
+                if (exists) return oldData;
+
+                const normalizedMsg: Message = {
+                  id: rawMessage.id,
+                  content: rawMessage.content,
+                  createdAt: new Date(rawMessage.created_at),
+                  senderId: rawMessage.sender_id,
+                  chatId: rawMessage.chat_id,
+                  isRead: rawMessage.is_read ?? false,
+                  replyTo: undefined,
+                  attachments: rawMessage.attachments || []
+                };
+                const newPages = [...oldData.pages];
+                newPages[0] = [normalizedMsg, ...newPages[0]];
+                return { ...oldData, pages: newPages };
               });
             }
+          } else if (payload.eventType === 'DELETE') {
+            // Update Message List
+            queryClient.setQueryData<InfiniteData<Message[]>>(['messages', chatId], (oldData) => {
+              if (!oldData) return oldData;
+              return {
+                ...oldData,
+                pages: oldData.pages.map(page => page.filter(m => m.id !== messageId))
+              };
+            });
+
+            // Update Chat List (Remove)
+            queryClient.setQueryData<FullChat[]>(['chats'], (oldChats) => {
+              if (!oldChats) return oldChats;
+              return oldChats.filter(c => c.id !== chatId);
+            });
+          } else if (payload.eventType === 'UPDATE') {
+             // Handle isRead updates or content edits
+             queryClient.setQueryData<InfiniteData<Message[]>>(['messages', chatId], (oldData) => {
+               if (!oldData) return oldData;
+               return {
+                 ...oldData,
+                 pages: oldData.pages.map(page => page.map(m => {
+                   if (m.id === messageId) {
+                      return {
+                        ...m,
+                        content: rawMessage.content,
+                        isRead: rawMessage.is_read ?? m.isRead,
+                      };
+                   }
+                   return m;
+                 }))
+               };
+             });
+
+             // Also update chat list if needed (e.g. unread counts if we had them)
+             queryClient.setQueryData<FullChat[]>(['chats'], (oldChats) => {
+               if (!oldChats) return oldChats;
+               return oldChats.map(chat => {
+                 if (chat.id === chatId) {
+                   // If we had a way to update the last message in the chat list object
+                   // we would do it here.
+                 }
+                 return chat;
+               });
+             });
           }
         }
       )
-      .subscribe();
+      .subscribe((status) => {
+        console.log(`📡 [GlobalRealtime] Messaging Status: ${status}`);
+      });
 
     return () => {
-      supabase.removeChannel(channel);
+      console.log(`🛑 [GlobalRealtime] Cleaning up...`);
+      supabase.removeChannel(presenceChannel);
+      supabase.removeChannel(messagesChannel);
+
+      try {
+        supabase.rpc('set_user_offline').then(({ error }) => {
+            if (error) console.error('Error setting offline:', error);
+        });
+      } catch (err) {
+        console.error('Failed to call set_user_offline:', err);
+      }
     };
-  }, [user, supabase, queryClient, pathname]);
+  }, [user?.id, queryClient, setOnlineUsers]);
 }

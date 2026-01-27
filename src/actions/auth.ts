@@ -19,7 +19,7 @@ export async function handleSignIn() {
 export async function handleSignOut() {
   const supabase = createClient();
   const { error } = await supabase.auth.signOut();
-  
+
   if (error) {
     console.error('Error signing out:', error.message);
   } else {

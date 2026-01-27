@@ -1,7 +1,7 @@
 'use client';
 
-import { useState, useEffect } from 'react';
 import { usePathname } from 'next/navigation';
+import { useCallback, useEffect, useState } from 'react';
 import Navbar from './Navbar';
 
 interface ChatLayoutWrapperProps {
@@ -15,37 +15,36 @@ interface ChatLayoutWrapperProps {
   } | null;
 }
 
-export default function ChatLayoutWrapper({
-  children,
-  sidebar,
-  user,
-}: ChatLayoutWrapperProps) {
+export default function ChatLayoutWrapper({ children, sidebar, user }: ChatLayoutWrapperProps) {
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
+  const [prevPathname, setPrevPathname] = useState<string | null>(null);
   const pathname = usePathname();
 
-  // 1. Закриття через зміну шляху
-  useEffect(() => {
-    setIsSidebarOpen(false);
-  }, [pathname]);
+  // Синхронізація при зміні шляху (без useEffect)
+  if (pathname !== prevPathname) {
+    if (isSidebarOpen) setIsSidebarOpen(false); // Закриваємо тільки якщо був відкритий
+    setPrevPathname(pathname);
+  }
 
-  // 2. СЛУХАЧ ПОДІЇ: Дозволяє будь-якому компоненту закрити сайдбар
+  // Використовуємо useCallback, щоб посилання на функцію не змінювалося
+  const handleClose = useCallback(() => {
+    setIsSidebarOpen(false);
+  }, []);
+
   useEffect(() => {
-    const handleClose = () => setIsSidebarOpen(false);
     window.addEventListener('close-mobile-sidebar', handleClose);
     return () => window.removeEventListener('close-mobile-sidebar', handleClose);
-  }, []);
+  }, [handleClose]);
 
   const toggleSidebar = () => setIsSidebarOpen((prev) => !prev);
 
   return (
     <div className="flex flex-col min-h-[100dvh]">
       <Navbar user={user} onMenuClick={toggleSidebar} />
-      
+
       <div className="flex flex-1 pt-16 relative overflow-hidden">
-        {/* Рендеримо оверлей та контейнер сайдбара тільки якщо є користувач */}
         {user && (
           <>
-            {/* Mobile Backdrop */}
             <button
               type="button"
               id="sidebar-overlay"
@@ -62,7 +61,6 @@ export default function ChatLayoutWrapper({
               aria-label="Close Sidebar"
             />
 
-            {/* Sidebar Container */}
             <div
               className={`
                 fixed lg:static inset-y-0 left-0 
@@ -78,10 +76,7 @@ export default function ChatLayoutWrapper({
           </>
         )}
 
-        {/* Main Content - розтягується на всю ширину, якщо сайдбара немає */}
-        <main className="flex-1 w-full min-w-0 relative z-0">
-          {children}
-        </main>
+        <main className="flex-1 w-full min-w-0 relative z-0">{children}</main>
       </div>
     </div>
   );

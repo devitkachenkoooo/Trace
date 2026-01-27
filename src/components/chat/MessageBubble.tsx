@@ -1,19 +1,19 @@
 'use client';
 
-import { Reply, Trash2, FileIcon, Download, Clock } from 'lucide-react';
 import { motion } from 'framer-motion';
+import Linkify from 'linkify-react';
+import { Clock, Download, FileIcon, Reply, Trash2 } from 'lucide-react';
 import {
   ContextMenu,
   ContextMenuContent,
   ContextMenuItem,
-  ContextMenuTrigger,
   ContextMenuSeparator,
+  ContextMenuTrigger,
 } from '@/components/ui/context-menu';
+import { formatMessageDate } from '@/lib/date-utils';
 import { cn } from '@/lib/utils';
 import type { Message } from '@/types';
 import { MessageMediaGrid } from './MessageMediaGrid';
-import { formatMessageDate } from '@/lib/date-utils';
-import Linkify from 'linkify-react';
 
 interface MessageBubbleProps {
   message: Message;
@@ -35,8 +35,8 @@ export function MessageBubble({
   otherParticipantName,
 }: MessageBubbleProps) {
   const isMe = message.senderId === currentUserId;
-  const imageAttachments = message.attachments?.filter(a => a.type === 'image') || [];
-  const fileAttachments = message.attachments?.filter(a => a.type === 'file') || [];
+  const imageAttachments = message.attachments?.filter((a) => a.type === 'image') || [];
+  const fileAttachments = message.attachments?.filter((a) => a.type === 'file') || [];
 
   return (
     <motion.div
@@ -60,20 +60,29 @@ export function MessageBubble({
                 isMe
                   ? 'bg-blue-600 text-white rounded-2xl rounded-tr-sm'
                   : 'bg-neutral-900/80 backdrop-blur-md text-gray-100 rounded-2xl rounded-tl-sm',
-                imageAttachments.length > 0 && !message.content ? 'p-1.5 bg-neutral-900/50' : ''
+                imageAttachments.length > 0 && !message.content ? 'p-1.5 bg-neutral-900/50' : '',
               )}
               style={{ willChange: 'transform' }}
             >
               {/* Reply Context */}
               {(() => {
-                const reply = message.replyDetails || (message.replyTo ? {
-                  id: message.replyTo.id,
-                  sender: { name: message.replyTo.senderId === currentUserId ? 'You' : otherParticipantName },
-                  content: message.replyTo.content
-                } : null);
+                const reply =
+                  message.replyDetails ||
+                  (message.replyTo
+                    ? {
+                        id: message.replyTo.id,
+                        sender: {
+                          name:
+                            message.replyTo.senderId === currentUserId
+                              ? 'You'
+                              : otherParticipantName,
+                        },
+                        content: message.replyTo.content,
+                      }
+                    : null);
 
                 if (!reply) return null;
-                
+
                 return (
                   <button
                     type="button"
@@ -105,7 +114,8 @@ export function MessageBubble({
                     options={{
                       target: '_blank',
                       rel: 'noopener noreferrer',
-                      className: 'text-blue-400 hover:text-blue-300 underline underline-offset-4 transition-colors cursor-pointer',
+                      className:
+                        'text-blue-400 hover:text-blue-300 underline underline-offset-4 transition-colors cursor-pointer',
                     }}
                   >
                     {message.content}
@@ -148,7 +158,7 @@ export function MessageBubble({
                         <div className="p-2 bg-blue-500/10 group-hover:bg-blue-500/20 rounded-lg shrink-0 transition-colors">
                           <FileIcon className="w-5 h-5 text-blue-400" />
                         </div>
-                        
+
                         <div className="flex-1 min-w-0 overflow-hidden">
                           <p className="text-sm font-medium text-blue-100 truncate w-full block">
                             {file.metadata.name}
@@ -166,10 +176,12 @@ export function MessageBubble({
               )}
 
               {/* Час та статус - тепер через наш хелпер */}
-              <div className={cn(
-                "flex items-center justify-end gap-1 mt-1.5 select-none w-full",
-                isMe ? "text-blue-100/50" : "text-white/40"
-              )}>
+              <div
+                className={cn(
+                  'flex items-center justify-end gap-1 mt-1.5 select-none w-full',
+                  isMe ? 'text-blue-100/50' : 'text-white/40',
+                )}
+              >
                 <span className="text-[9px] font-medium">
                   {formatMessageDate(message.createdAt)}
                 </span>
@@ -186,7 +198,7 @@ export function MessageBubble({
             <Reply className="w-4 h-4" />
             Reply
           </ContextMenuItem>
-          
+
           {isMe && (
             <>
               <ContextMenuSeparator />

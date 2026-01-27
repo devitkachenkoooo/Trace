@@ -5,15 +5,8 @@
     {
       "idx": 0,
       "version": "7",
-      "when": 1769201320598,
-      "tag": "0000_mighty_hairball",
-      "breakpoints": true
-    },
-    {
-      "idx": 1,
-      "version": "7",
-      "when": 1769453776949,
-      "tag": "0001_zippy_squadron_supreme",
+      "when": 1769528855700,
+      "tag": "0000_flat_grandmaster",
       "breakpoints": true
     }
   ]

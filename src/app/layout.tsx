@@ -1,12 +1,11 @@
 import '@/wdyr';
 import type { Metadata } from 'next';
 import { Geist, Geist_Mono } from 'next/font/google';
-import { createClient } from '@/lib/supabase/server';
 import AuthProvider from '@/components/auth/AuthProvider';
 import ChatLayoutWrapper from '@/components/layout/ChatLayoutWrapper';
 import Providers from '@/components/Providers';
-import RealtimePresence from '@/components/realtime/RealtimePresence';
 import Sidebar from '@/components/sidebar/Sidebar';
+import { createClient } from '@/lib/supabase/server';
 import './globals.css';
 
 const geistSans = Geist({
@@ -30,7 +29,9 @@ export default async function RootLayout({
   children: React.ReactNode;
 }>) {
   const supabase = await createClient();
-  const { data: { user } } = await supabase.auth.getUser();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
 
   return (
     <html lang="en">
@@ -39,14 +40,20 @@ export default async function RootLayout({
       >
         <Providers>
           <AuthProvider>
-            <RealtimePresence />
-            <ChatLayoutWrapper 
-              user={user ? { 
-                id: user.id, 
-                email: user.email, 
-                name: user.user_metadata.full_name || user.user_metadata.name || user.email?.split('@')[0],
-                image: user.user_metadata.avatar_url || user.user_metadata.picture
-              } : null} 
+            <ChatLayoutWrapper
+              user={
+                user
+                  ? {
+                      id: user.id,
+                      email: user.email,
+                      name:
+                        user.user_metadata.full_name ||
+                        user.user_metadata.name ||
+                        user.email?.split('@')[0],
+                      image: user.user_metadata.avatar_url || user.user_metadata.picture,
+                    }
+                  : null
+              }
               sidebar={user ? <Sidebar /> : null}
             >
               {children}

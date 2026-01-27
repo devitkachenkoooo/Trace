@@ -2,19 +2,16 @@
 
 import { MessageSquare, Users } from 'lucide-react';
 import { useRouter, useSearchParams } from 'next/navigation';
-import { useSupabaseAuth } from '../SupabaseAuthProvider';
 import { useEffect } from 'react';
-import { useUpdateLastSeen } from '@/hooks/useChatHooks';
 import ChatList from './ChatList';
 import ContactsList from './ContactsList';
 import SearchInput from './SearchInput';
 
 export default function SidebarShell() {
-  const { user } = useSupabaseAuth();
   const router = useRouter();
   const searchParams = useSearchParams();
 
-  useUpdateLastSeen(user?.id);
+
 
   const tab = searchParams.get('tab') || 'chats';
   const query = searchParams.get('q') || '';
@@ -37,10 +34,12 @@ export default function SidebarShell() {
   };
 
   return (
-    <aside className="h-screen lg:h-[calc(100vh-64px)] w-80 backdrop-blur-md bg-black/40 border-r border-white/10 flex flex-col z-40 shrink-0 overflow-hidden" style={{ willChange: 'transform' }}>
+    <aside
+      className="h-screen lg:h-[calc(100vh-64px)] w-80 backdrop-blur-md bg-black/40 border-r border-white/10 flex flex-col z-40 shrink-0 overflow-hidden"
+      style={{ willChange: 'transform' }}
+    >
       {/* Header */}
       <div className="pt-6 pb-2 lg:pt-8 lg:pb-4">
-
         {/* View Toggle */}
         <div className="px-4 mb-6">
           <div className="flex p-1 bg-white/5 rounded-xl border border-white/10">

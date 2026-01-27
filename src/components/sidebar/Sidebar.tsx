@@ -3,7 +3,9 @@ import SidebarShell from './SidebarShell';
 
 export default async function Sidebar() {
   const supabase = await createClient();
-  const { data: { user } } = await supabase.auth.getUser();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
 
   if (!user) return null;
 

@@ -1,8 +1,8 @@
 'use client';
 
-import { MessageSquarePlus, User as UserIcon } from 'lucide-react';
+import { Loader2, MessageSquarePlus, User as UserIcon } from 'lucide-react';
 import Image from 'next/image';
-import { useSupabaseAuth } from '@/components/SupabaseAuthProvider';
+import { useTransition } from 'react';
 import { getOrCreateChatAction } from '@/actions/chat-actions';
 import { usePresence, useSearchUsers } from '@/hooks/useChatHooks';
 
@@ -11,13 +11,16 @@ interface ContactsListProps {
 }
 
 export default function ContactsList({ query }: ContactsListProps) {
-  const { user: currentUser } = useSupabaseAuth();
   const { data: users, isLoading } = useSearchUsers(query);
-  const { onlineUsers } = usePresence(currentUser?.id);
+  const { onlineUsers } = usePresence();
+
+  // Додаємо стан переходу для серверної дії
+  const [isPending, startTransition] = useTransition();
 
   if (isLoading) {
     return (
       <div className="flex-1 flex items-center justify-center p-8 text-gray-500 text-sm">
+        <Loader2 className="w-4 h-4 animate-spin mr-2" />
         Шукаємо...
       </div>
     );
@@ -82,13 +85,23 @@ export default function ContactsList({ query }: ContactsListProps) {
               </p>
               <p className="text-[10px] text-gray-500 truncate lowercase">{user.email}</p>
             </div>
+
             <button
               type="button"
-              onClick={() => getOrCreateChatAction(user.id)}
-              className="p-2 bg-white/5 hover:bg-white text-gray-400 hover:text-black rounded-lg transition-all opacity-100 lg:opacity-0 lg:group-hover:opacity-100"
+              disabled={isPending}
+              onClick={() => {
+                startTransition(async () => {
+                  await getOrCreateChatAction(user.id);
+                });
+              }}
+              className="p-2 bg-white/5 hover:bg-white text-gray-400 hover:text-black rounded-lg transition-all opacity-100 lg:opacity-0 lg:group-hover:opacity-100 disabled:opacity-50 disabled:cursor-not-allowed"
               title="Надіслати повідомлення"
             >
-              <MessageSquarePlus className="w-4 h-4" />
+              {isPending ? (
+                <Loader2 className="w-4 h-4 animate-spin" />
+              ) : (
+                <MessageSquarePlus className="w-4 h-4" />
+              )}
             </button>
           </div>
         );

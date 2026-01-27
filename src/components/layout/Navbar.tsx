@@ -1,14 +1,13 @@
 import { Menu } from 'lucide-react';
 import Image from 'next/image';
-import { SignOutButton, SignInButton } from '../auth/auth-buttons';
-import Logo from '../ui/Logo';
 import {
   DropdownMenu,
   DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
   DropdownMenuSeparator,
+  DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
+import { SignInButton, SignOutButton } from '../auth/auth-buttons';
+import Logo from '../ui/Logo';
 
 interface NavbarProps {
   user?: {
@@ -62,15 +61,17 @@ export default function Navbar({ user, onMenuClick }: NavbarProps) {
 
             <DropdownMenuContent align="end" className="w-56">
               <div className="px-3 py-2.5">
-                <p className="text-[10px] uppercase tracking-wider text-gray-500 font-bold">Активний аккаунт</p>
+                <p className="text-[10px] uppercase tracking-wider text-gray-500 font-bold">
+                  Активний аккаунт
+                </p>
                 <p className="text-sm font-medium text-white truncate mt-0.5">{user.email}</p>
               </div>
-              
+
               <DropdownMenuSeparator />
-              
+
               {/* Тут ми використовуємо твій SignOutButton, але стилізуємо його під пункт меню */}
               <div className="p-0">
-                 <SignOutButton />
+                <SignOutButton />
               </div>
             </DropdownMenuContent>
           </DropdownMenu>

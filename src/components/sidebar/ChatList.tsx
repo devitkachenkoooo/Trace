@@ -1,16 +1,17 @@
 'use client';
 
 import { MessageSquare, Trash2, User } from 'lucide-react';
+import Image from 'next/image';
 import Link from 'next/link';
-import { useSupabaseAuth } from '@/components/SupabaseAuthProvider';
 import { useState } from 'react';
+import { useSupabaseAuth } from '@/components/SupabaseAuthProvider';
 import { ConfirmationDialog } from '@/components/ui/confirmation-dialog';
 import {
   ContextMenu,
   ContextMenuContent,
   ContextMenuItem,
-  ContextMenuTrigger,
   ContextMenuSeparator,
+  ContextMenuTrigger,
 } from '@/components/ui/context-menu';
 import { useChats, useDeleteChat } from '@/hooks/useChatHooks';
 import { formatRelativeTime } from '@/lib/date-utils';
@@ -20,15 +21,17 @@ export default function ChatList() {
   const { user } = useSupabaseAuth();
   const deleteChat = useDeleteChat();
   const [chatToDelete, setChatToDelete] = useState<string | null>(null);
-  
+
   const currentUserId = user?.id;
 
   const handleChatClick = () => {
     window.dispatchEvent(new CustomEvent('close-mobile-sidebar'));
   };
 
-  if (isLoading) return <div className="p-8 text-center text-sm text-gray-500 mt-10">Завантаження...</div>;
-  if (!chats?.length) return <div className="p-8 text-center text-sm text-gray-500 mt-10">Немає діалогів</div>;
+  if (isLoading)
+    return <div className="p-8 text-center text-sm text-gray-500 mt-10">Завантаження...</div>;
+  if (!chats?.length)
+    return <div className="p-8 text-center text-sm text-gray-500 mt-10">Немає діалогів</div>;
 
   return (
     <>
@@ -39,7 +42,8 @@ export default function ChatList() {
           const partnerImage = partner?.image;
 
           const lastMessage = chat.messages[0];
-          const isUnread = lastMessage && !lastMessage.isRead && lastMessage.senderId !== currentUserId;
+          const isUnread =
+            lastMessage && !lastMessage.isRead && lastMessage.senderId !== currentUserId;
 
           return (
             <ContextMenu key={chat.id}>
@@ -51,33 +55,37 @@ export default function ChatList() {
                 >
                   <div className="w-10 h-10 rounded-full bg-gradient-to-br from-white/10 to-transparent flex items-center justify-center border border-white/10 shrink-0 overflow-hidden">
                     {partnerImage ? (
-                      <img 
-                        src={partnerImage} 
-                        alt={chatDisplayTitle} 
-                        className="w-full h-full object-cover"
-                      />
+                      <div className="relative w-full h-full">
+                        <Image
+                          src={partnerImage}
+                          alt={chatDisplayTitle}
+                          fill
+                          className="object-cover"
+                        />
+                      </div>
                     ) : (
                       <User className="w-5 h-5 text-gray-400 group-hover:text-white transition-colors" />
                     )}
                   </div>
-                  
+
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center justify-between gap-2">
                       <p className="text-sm font-medium text-gray-200 truncate group-hover:text-white">
                         {chatDisplayTitle}
                       </p>
-                      
+
                       {lastMessage && (
                         <span className="text-[10px] text-gray-500 whitespace-nowrap">
                           {formatRelativeTime(lastMessage.createdAt)}
                         </span>
                       )}
                     </div>
-                    
+
                     <div className="flex items-center justify-between gap-2 mt-0.5">
                       <p className="text-[11px] text-gray-500 truncate flex-1">
                         {lastMessage?.senderId === currentUserId && 'Ви: '}
-                        {lastMessage?.content || (lastMessage?.attachments?.length ? '📎 Медіа' : 'Немає повідомлень')}
+                        {lastMessage?.content ||
+                          (lastMessage?.attachments?.length ? '📎 Медіа' : 'Немає повідомлень')}
                       </p>
                       {isUnread && (
                         <div className="w-2 h-2 bg-blue-500 rounded-full shadow-[0_0_8px_rgba(59,130,246,0.5)] shrink-0" />
@@ -92,8 +100,8 @@ export default function ChatList() {
                   <MessageSquare className="w-4 h-4" /> Open Chat
                 </ContextMenuItem>
                 <ContextMenuSeparator />
-                <ContextMenuItem 
-                  onClick={() => setChatToDelete(chat.id)} 
+                <ContextMenuItem
+                  onClick={() => setChatToDelete(chat.id)}
                   className="text-red-400 focus:text-red-400 focus:bg-red-500/10 gap-2"
                 >
                   <Trash2 className="w-4 h-4" /> Delete Chat

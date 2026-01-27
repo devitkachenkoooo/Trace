@@ -1,12 +1,12 @@
 'use client';
 
-import { cn } from '@/lib/utils';
-import type { Attachment } from '@/types';
 import { AnimatePresence, motion } from 'framer-motion';
 import { AlertCircle, ChevronLeft, ChevronRight, Clock, Download, X } from 'lucide-react';
 import Image from 'next/image';
 import { useCallback, useEffect, useState } from 'react';
 import { createPortal } from 'react-dom';
+import { cn } from '@/lib/utils';
+import type { Attachment } from '@/types';
 
 interface ImageModalProps {
   isOpen: boolean;
@@ -21,72 +21,83 @@ export function ImageModal({ isOpen, images, initialIndex, onClose }: ImageModal
   const [direction, setDirection] = useState(0);
   const [hasError, setHasError] = useState(false);
 
+  // 1. Безпечне монтування для SSR (виправляє cascading renders)
   useEffect(() => {
-    setMounted(true);
+    const raf = requestAnimationFrame(() => {
+      setMounted(true);
+    });
+    return () => cancelAnimationFrame(raf);
   }, []);
 
-  // Скидаємо помилку при зміні картинки
-  useEffect(() => {
+  // 2. Синхронізація стейту (паттерн Adjusting state based on props)
+  const [prevInitialIndex, setPrevInitialIndex] = useState(initialIndex);
+
+  if (initialIndex !== prevInitialIndex) {
+    setPrevInitialIndex(initialIndex);
+    setCurrentIndex(initialIndex);
     setHasError(false);
-  }, [currentIndex]);
+    setDirection(0);
+  }
 
-  // Sync index when initialIndex changes or modal opens
-  useEffect(() => {
-    if (isOpen) {
-      setCurrentIndex(initialIndex);
-      setDirection(0);
-    }
-    // currentIndex видалено звідси, щоб Biome не сварився
-  }, [isOpen, initialIndex]);
+  const handleNext = useCallback(
+    (e?: React.MouseEvent | KeyboardEvent) => {
+      // Безпечна перевірка: спочатку чи існує 'e', потім чи є в ньому метод
+      if (e && 'stopPropagation' in e) {
+        e.stopPropagation();
+      }
 
-  const handleNext = useCallback((e?: React.MouseEvent) => {
-    e?.stopPropagation();
-    setCurrentIndex((prev) => {
-      if (prev < images.length - 1) {
+      if (currentIndex < images.length - 1) {
         setDirection(1);
-        return prev + 1;
+        setCurrentIndex((prev) => prev + 1);
+        setHasError(false);
       }
-      return prev;
-    });
-  }, [images.length]);
+    },
+    [currentIndex, images.length],
+  );
 
-  const handlePrev = useCallback((e?: React.MouseEvent) => {
-    e?.stopPropagation();
-    setCurrentIndex((prev) => {
-      if (prev > 0) {
+  const handlePrev = useCallback(
+    (e?: React.MouseEvent | KeyboardEvent) => {
+      // Аналогічно тут
+      if (e && 'stopPropagation' in e) {
+        e.stopPropagation();
+      }
+
+      if (currentIndex > 0) {
         setDirection(-1);
-        return prev - 1;
+        setCurrentIndex((prev) => prev - 1);
+        setHasError(false);
       }
-      return prev;
-    });
-  }, []);
+    },
+    [currentIndex],
+  );
 
+  // 3. Обробка клавіш та блокування скролу
   useEffect(() => {
+    if (!isOpen) return;
+
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key === 'Escape') onClose();
-      if (e.key === 'ArrowRight') handleNext();
-      if (e.key === 'ArrowLeft') handlePrev();
+      if (e.key === 'ArrowRight') handleNext(e);
+      if (e.key === 'ArrowLeft') handlePrev(e);
     };
 
-    if (isOpen) {
-      document.addEventListener('keydown', handleKeyDown);
-      document.body.style.overflow = 'hidden';
-    }
+    document.addEventListener('keydown', handleKeyDown);
+    const originalStyle = window.getComputedStyle(document.body).overflow;
+    document.body.style.overflow = 'hidden';
 
     return () => {
       document.removeEventListener('keydown', handleKeyDown);
-      document.body.style.overflow = 'unset';
+      document.body.style.overflow = originalStyle;
     };
   }, [isOpen, onClose, handleNext, handlePrev]);
 
   if (!mounted) return null;
 
   const currentImage = images[currentIndex];
-  if (!currentImage) return null;
 
   const variants = {
-    enter: (direction: number) => ({
-      x: direction > 0 ? 300 : direction < 0 ? -300 : 0,
+    enter: (dir: number) => ({
+      x: dir > 0 ? 300 : dir < 0 ? -300 : 0,
       opacity: 0,
       scale: 0.95,
     }),
@@ -96,9 +107,9 @@ export function ImageModal({ isOpen, images, initialIndex, onClose }: ImageModal
       opacity: 1,
       scale: 1,
     },
-    exit: (direction: number) => ({
+    exit: (dir: number) => ({
       zIndex: 0,
-      x: direction < 0 ? 300 : direction > 0 ? -300 : 0,
+      x: dir < 0 ? 300 : dir > 0 ? -300 : 0,
       opacity: 0,
       scale: 0.95,
     }),
@@ -118,15 +129,15 @@ export function ImageModal({ isOpen, images, initialIndex, onClose }: ImageModal
           <div className="absolute top-0 left-0 right-0 h-20 px-6 flex items-center justify-between z-[10000] bg-gradient-to-b from-black/50 to-transparent">
             <div className="flex flex-col text-white">
               <span className="font-medium truncate max-w-[200px] sm:max-w-md text-sm">
-                {currentImage.metadata?.name || 'Image'}
+                {currentImage?.metadata?.name || 'Зображення'}
               </span>
               <span className="text-white/40 text-[11px] uppercase tracking-wider">
-                {currentIndex + 1} of {images.length}
+                {currentIndex + 1} з {images.length}
               </span>
             </div>
 
             <div className="flex items-center gap-2">
-              {!hasError && (
+              {!hasError && currentImage?.url && (
                 <a
                   href={currentImage.url}
                   download={currentImage.metadata?.name}
@@ -151,7 +162,7 @@ export function ImageModal({ isOpen, images, initialIndex, onClose }: ImageModal
             {currentIndex > 0 && (
               <button
                 type="button"
-                onClick={handlePrev}
+                onClick={(e) => handlePrev(e)}
                 className="absolute left-4 z-[10001] p-3 rounded-full bg-white/5 hover:bg-white/10 text-white transition-all backdrop-blur-sm border border-white/10"
               >
                 <ChevronLeft size={28} />
@@ -173,10 +184,10 @@ export function ImageModal({ isOpen, images, initialIndex, onClose }: ImageModal
                 className="relative w-full h-full flex items-center justify-center"
                 onClick={(e) => e.stopPropagation()}
               >
-                {!hasError ? (
+                {!hasError && currentImage?.url ? (
                   <Image
                     src={currentImage.url}
-                    alt="Gallery view"
+                    alt="Галерея"
                     fill
                     className="object-contain select-none"
                     priority
@@ -190,8 +201,8 @@ export function ImageModal({ isOpen, images, initialIndex, onClose }: ImageModal
                       <AlertCircle className="w-8 h-8 text-red-500 absolute -bottom-1 -right-1" />
                     </div>
                     <div className="text-center">
-                      <p className="text-lg font-medium text-white/80">Media unavailable</p>
-                      <p className="text-sm text-white/40">This file has expired or was removed</p>
+                      <p className="text-lg font-medium text-white/80">Медіа недоступне</p>
+                      <p className="text-sm text-white/40">Файл видалено або він застарів</p>
                     </div>
                   </div>
                 )}
@@ -201,7 +212,7 @@ export function ImageModal({ isOpen, images, initialIndex, onClose }: ImageModal
             {currentIndex < images.length - 1 && (
               <button
                 type="button"
-                onClick={handleNext}
+                onClick={(e) => handleNext(e)}
                 className="absolute right-4 z-[10001] p-3 rounded-full bg-white/5 hover:bg-white/10 text-white transition-all backdrop-blur-sm border border-white/10"
               >
                 <ChevronRight size={28} />
@@ -209,7 +220,7 @@ export function ImageModal({ isOpen, images, initialIndex, onClose }: ImageModal
             )}
           </div>
 
-          {/* Footer Indicators */}
+          {/* Indicators */}
           <div className="h-20 px-6 flex items-center justify-center gap-2 z-[10000]">
             {images.length > 1 &&
               images.map((img, idx) => (

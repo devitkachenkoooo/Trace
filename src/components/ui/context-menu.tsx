@@ -21,7 +21,7 @@ const ContextMenuSubTrigger = React.forwardRef<
     className={cn(
       'flex cursor-default select-none items-center rounded-xl px-3 py-2 text-sm outline-none focus:bg-white/10 focus:text-white data-[state=open]:bg-white/10 data-[state=open]:text-white',
       inset && 'pl-8',
-      className
+      className,
     )}
     {...props}
   >
@@ -40,7 +40,7 @@ const ContextMenuContent = React.forwardRef<
       ref={ref}
       className={cn(
         'z-50 min-w-[12rem] overflow-hidden rounded-2xl border border-white/10 bg-neutral-950/90 p-1.5 text-white shadow-2xl backdrop-blur-xl animate-in fade-in-80 zoom-in-95 data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=closed]:zoom-out-95',
-        className
+        className,
       )}
       {...props}
     />
@@ -57,7 +57,7 @@ const ContextMenuItem = React.forwardRef<
     className={cn(
       'relative flex cursor-pointer select-none items-center rounded-xl px-3 py-2.5 text-sm outline-none transition-colors focus:bg-white/10 focus:text-white data-[disabled]:pointer-events-none data-[disabled]:opacity-50',
       inset && 'pl-8',
-      className
+      className,
     )}
     {...props}
   />

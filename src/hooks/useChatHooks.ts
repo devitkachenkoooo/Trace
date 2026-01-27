@@ -1,558 +1,378 @@
-import { type InfiniteData, useInfiniteQuery, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { useCallback, useEffect, useRef, useState } from 'react';
-import { useRouter } from 'next/navigation';
-import type { VirtuosoHandle } from 'react-virtuoso';
-import {
-  deleteChatAction,
-  deleteMessageAction,
-  getChatsAction,
-  getFullChatAction,
-  getMessagesAction,
-  markAsReadAction,
-  searchUsersAction,
-  sendMessageAction,
-  updateLastSeenAction,
-} from '@/actions/chat-actions';
+'use client';
+
+import { useState, useEffect, useRef, useCallback } from 'react';
+import { 
+  type InfiniteData, 
+  useInfiniteQuery, 
+  useMutation, 
+  useQuery, 
+  useQueryClient 
+} from '@tanstack/react-query';
+import { toast } from 'sonner';
+import { RealtimeChannel } from '@supabase/supabase-js';
+
+// Залишаємо тільки ОДИН варіант авторизації та клієнта
+import { useSupabaseAuth } from '@/components/SupabaseAuthProvider';
 import { createClient } from '@/lib/supabase/client';
 import { usePresenceStore } from '@/store/usePresenceStore';
-import { useSupabaseAuth } from '@/components/SupabaseAuthProvider';
-import type { Attachment, FullChat, Message } from '@/types';
-import type { RealtimeChannel } from '@supabase/supabase-js';
+import type { FullChat, Message, User } from '@/types';
 
-interface DbMessage {
-  id: string;
-  sender_id?: string;
-  senderId?: string;
-  chat_id?: string;
-  chatId?: string;
-  content: string;
-  attachments?: Attachment[];
-  is_read?: boolean;
-  isRead?: boolean;
-  reply_to_id?: string | null;
-  replyToId?: string | null;
-  created_at?: string | Date;
-  createdAt?: string | Date;
-}
+// Створюємо клієнт supabase ОДИН раз
+const supabase = createClient();
 
+// 1. Отримання чатів
 export function useChats() {
-  const queryClient = useQueryClient();
-  const supabase = createClient();
-
-  useEffect(() => {
-    const channel = supabase
-      .channel('global_chats')
-      .on(
-        'postgres_changes',
-        {
-          event: 'INSERT',
-          schema: 'public',
-          table: 'messages',
-        },
-        (payload) => {
-          const newMessage = payload.new as DbMessage;
-          queryClient.setQueryData<FullChat[]>(['chats'], (old) => {
-            if (!old) return old;
-            const chatId = newMessage.chat_id || newMessage.chatId;
-            const chatIndex = old.findIndex((c) => c.id === chatId);
-            
-            if (chatIndex === -1) {
-              // If chat not in list, it might be a new chat
-              queryClient.invalidateQueries({ queryKey: ['chats'] });
-              return old;
-            }
-
-            const newChats = [...old];
-            const updatedChat = { ...newChats[chatIndex] };
-            
-            // Update last message for preview
-            updatedChat.messages = [{
-              id: newMessage.id,
-              content: newMessage.content,
-              createdAt: new Date(newMessage.created_at || newMessage.createdAt || Date.now()),
-              senderId: String(newMessage.sender_id || newMessage.senderId || ''),
-              chatId: String(newMessage.chat_id || newMessage.chatId || ''),
-              isRead: !!(newMessage.is_read || newMessage.isRead),
-              attachments: newMessage.attachments || [],
-            } as Message];
-
-            newChats[chatIndex] = updatedChat;
-            
-            // Move to top
-            const [movedChat] = newChats.splice(chatIndex, 1);
-            newChats.unshift(movedChat);
-            
-            return newChats;
-          });
-        }
-      )
-      .on(
-        'postgres_changes',
-        {
-          event: '*',
-          schema: 'public',
-          table: 'chats',
-        },
-        (payload) => {
-          if (payload.eventType === 'INSERT') {
-            queryClient.invalidateQueries({ queryKey: ['chats'] });
-          } else if (payload.eventType === 'UPDATE') {
-            const updatedChat = payload.new as FullChat;
-            queryClient.setQueryData<FullChat[]>(['chats'], (old) => {
-              if (!old) return old;
-              const chatIndex = old.findIndex((c) => c.id === updatedChat.id);
-              if (chatIndex === -1) return old;
-
-              const newChats = [...old];
-              // Update the chat data
-              newChats[chatIndex] = { ...newChats[chatIndex], ...updatedChat };
-              
-              // Top-sort: Move the updated chat to the top
-              const [movedChat] = newChats.splice(chatIndex, 1);
-              newChats.unshift(movedChat);
-              
-              return newChats;
-            });
-          } else if (payload.eventType === 'DELETE') {
-            const deletedId = payload.old.id;
-            queryClient.setQueryData<FullChat[]>(['chats'], (old) => {
-              if (!old) return old;
-              return old.filter((c) => c.id !== deletedId);
-            });
-          }
-        }
-      )
-      .subscribe();
-
-    return () => {
-      supabase.removeChannel(channel);
-    };
-  }, [supabase, queryClient]);
+  const { user } = useSupabaseAuth();
 
   return useQuery({
     queryKey: ['chats'],
     queryFn: async () => {
-      const result = await getChatsAction();
-      if (!result.success) {
-        throw new Error(result.error);
+      if (!user) return [];
+
+      const { data, error } = await supabase
+        .from('chats')
+        .select(`
+          *,
+          user:user_id(*),      
+          recipient:recipient_id(*),
+          messages(
+            id, 
+            content, 
+            createdAt:created_at, 
+            senderId:sender_id, 
+            chatId:chat_id, 
+            isRead:is_read, 
+            attachments
+          )
+        `)
+        .or(`user_id.eq.${user.id},recipient_id.eq.${user.id}`)
+        .order('created_at', { ascending: false });
+
+      if (error) {
+        console.error("Помилка запиту чатів:", error.message);
+        throw error;
       }
-      return result.data;
+
+      return data as FullChat[];
     },
-  });
-}
-
-export function useMessages(chatId: string, currentUserId: string | undefined) {
-  const queryClient = useQueryClient();
-  const [isTyping, setIsTyping] = useState<Record<string, boolean>>({});
-  const channelRef = useRef<RealtimeChannel | null>(null);
-  const timeoutsRef = useRef<Record<string, NodeJS.Timeout>>({});
-  const supabase = createClient();
-
-  useEffect(() => {
-    if (!chatId || !currentUserId) return;
-
-    const channel = supabase
-      .channel(`chat_room:${chatId}`, {
-        config: { broadcast: { self: true } },
-      })
-      .on(
-        'postgres_changes',
-        {
-          event: '*',
-          schema: 'public',
-          table: 'messages',
-          filter: `chat_id=eq.${chatId}`,
-        },
-        (payload) => {
-          if (payload.eventType === 'INSERT') {
-            const raw = payload.new as DbMessage;
-
-            queryClient.setQueryData<InfiniteData<Message[], Date | undefined>>(['messages', chatId], (old) => {
-              if (!old) return old;
-              
-              const allMessages = old.pages.flat();
-              // Message De-duplication: check if the message id already exists
-              if (allMessages.some((m) => m.id === raw.id)) return old;
-
-              const parentId = raw.reply_to_id || raw.replyToId;
-              const foundParent = parentId 
-                ? (allMessages.find(m => m.id === parentId) as Message | undefined)
-                : undefined;
-
-              const newMessage: Message = {
-                id: raw.id,
-                content: raw.content || '',
-                attachments: raw.attachments || [],
-                isRead: !!(raw.is_read || raw.isRead),
-                senderId: String(raw.sender_id || raw.senderId || ''),
-                chatId: String(raw.chat_id || raw.chatId || ''),
-                replyToId: (parentId || undefined) as string | undefined,
-                replyTo: foundParent,
-                createdAt: new Date(raw.created_at || raw.createdAt || Date.now()),
-                isOptimistic: false,
-              };
-
-              const matchIndex = allMessages.findIndex(
-                (m) =>
-                  m.isOptimistic &&
-                  (m.senderId === newMessage.senderId || m.senderId === currentUserId) &&
-                  m.content.trim() === newMessage.content.trim(),
-              );
-
-              const newPages = [...old.pages];
-              
-              if (matchIndex !== -1) {
-                let currentIndex = 0;
-                for (let i = 0; i < newPages.length; i++) {
-                  if (matchIndex >= currentIndex && matchIndex < currentIndex + newPages[i].length) {
-                    const pageCopy = [...newPages[i]];
-                    pageCopy[matchIndex - currentIndex] = newMessage;
-                    newPages[i] = pageCopy;
-                    break;
-                  }
-                  currentIndex += newPages[i].length;
-                }
-              } else {
-                // For a new message, add it to the first page (most recent)
-                const firstPage = [...(newPages[0] || [])];
-                firstPage.push(newMessage);
-                newPages[0] = firstPage;
-              }
-
-              return { ...old, pages: newPages };
-            });
-
-            // Automatic Read Receipt: If the user is in the chat and it's from someone else
-            if (raw.sender_id !== currentUserId || raw.senderId !== currentUserId) {
-              markAsReadAction(chatId);
-            }
-
-            queryClient.invalidateQueries({ queryKey: ['chats'] });
-          } else if (payload.eventType === 'UPDATE') {
-            const raw = payload.new as DbMessage;
-            queryClient.setQueryData<InfiniteData<Message[], Date | undefined>>(['messages', chatId], (old) => {
-              if (!old) return old;
-              return {
-                ...old,
-                pages: old.pages.map(page => page.map(m => {
-                  if (m.id === raw.id) {
-                    return {
-                      ...m,
-                      content: raw.content ?? m.content,
-                      isRead: !!(raw.is_read ?? raw.isRead ?? m.isRead),
-                      attachments: raw.attachments ?? m.attachments,
-                    };
-                  }
-                  return m;
-                }))
-              };
-            });
-          } else if (payload.eventType === 'DELETE') {
-            const deletedId = payload.old.id;
-            queryClient.setQueryData<InfiniteData<Message[], Date | undefined>>(['messages', chatId], (old) => {
-              if (!old) return old;
-              return {
-                ...old,
-                pages: old.pages.map(page => page.filter(m => m.id !== deletedId))
-              };
-            });
-          }
-        },
-      )
-      .on('broadcast', { event: 'typing' }, ({ payload }) => {
-        if (payload.userId !== currentUserId) {
-          setIsTyping((prev) => ({ ...prev, [payload.userId]: payload.isTyping }));
-
-          if (timeoutsRef.current[payload.userId]) {
-            clearTimeout(timeoutsRef.current[payload.userId]);
-          }
-
-          if (payload.isTyping) {
-            timeoutsRef.current[payload.userId] = setTimeout(() => {
-              setIsTyping((prev) => {
-                const updated = { ...prev };
-                delete updated[payload.userId];
-                return updated;
-              });
-              delete timeoutsRef.current[payload.userId];
-            }, 3000);
-          }
-        }
-      })
-      .subscribe((status) => {
-        if (status === 'SUBSCRIBED') {
-          channelRef.current = channel;
-        }
-      });
-
-    return () => {
-      Object.values(timeoutsRef.current).forEach(clearTimeout);
-      supabase.removeChannel(channel);
-      channelRef.current = null;
-    };
-  }, [chatId, queryClient, currentUserId, supabase]);
-
-  const setTyping = (typing: boolean) => {
-    if (
-      channelRef.current &&
-      (channelRef.current.state === 'joined' || channelRef.current.state === 'joining')
-    ) {
-      channelRef.current.send({
-        type: 'broadcast',
-        event: 'typing',
-        payload: { userId: currentUserId, isTyping: typing },
-      });
-    }
-  };
-
-  const query = useInfiniteQuery<Message[], Error, InfiniteData<Message[], Date | undefined>, string[], Date | undefined>({
-    queryKey: ['messages', chatId],
-    queryFn: async ({ pageParam }) => {
-      const result = await getMessagesAction(chatId, pageParam);
-      if (!result.success) throw new Error(result.error);
-      return result.data as Message[];
-    },
-    initialPageParam: undefined,
-    getNextPageParam: (lastPage) => {
-      if (lastPage.length < 50) return undefined;
-      return lastPage[0]?.createdAt ? new Date(lastPage[0].createdAt) : undefined;
-    },
-    enabled: !!chatId,
-  });
-
-  const allMessages = query.data?.pages ? [...query.data.pages].reverse().flat() : [];
-
-  return { ...query, messages: allMessages, isTyping, setTyping };
-}
-
-export function useDeleteMessage(chatId: string) {
-  const queryClient = useQueryClient();
-  return useMutation({
-    mutationFn: (messageId: string) => deleteMessageAction(messageId),
-    onMutate: async (messageId) => {
-      await queryClient.cancelQueries({ queryKey: ['messages', chatId] });
-      const previousData = queryClient.getQueryData<InfiniteData<Message[], Date | undefined>>(['messages', chatId]);
-
-      queryClient.setQueryData<InfiniteData<Message[], Date | undefined>>(['messages', chatId], (old) => {
-        if (!old) return old;
-        return {
-          ...old,
-          pages: old.pages.map(page => page.filter(m => m.id !== messageId))
-        };
-      });
-
-      return { previousData };
-    },
-    onError: (_err, _variables, context) => {
-      if (context?.previousData) {
-        queryClient.setQueryData(['messages', chatId], context.previousData);
-      }
-    },
-    onSettled: () => {
-      queryClient.invalidateQueries({ queryKey: ['messages', chatId] });
-    },
-  });
-}
-
-export function useDeleteChat() {
-  const queryClient = useQueryClient();
-  const router = useRouter();
-
-  return useMutation({
-    mutationFn: (chatId: string) => deleteChatAction(chatId),
-    onMutate: async (chatId) => {
-      await queryClient.cancelQueries({ queryKey: ['chats'] });
-      const previousChats = queryClient.getQueryData<FullChat[]>(['chats']);
-
-      queryClient.setQueryData<FullChat[]>(['chats'], (old) => {
-        return old ? old.filter((c) => c.id !== chatId) : [];
-      });
-
-      return { previousChats };
-    },
-    onSuccess: () => {
-      router.push('/');
-      router.refresh();
-    },
-    onError: (_err, _variables, context) => {
-      if (context?.previousChats) {
-        queryClient.setQueryData(['chats'], context.previousChats);
-      }
-    },
-    onSettled: (_data, _error, variables) => {
-      queryClient.invalidateQueries({ queryKey: ['chats'] });
-      queryClient.invalidateQueries({ queryKey: ['chat', variables] });
-    },
-  });
-}
-
-export function useScrollToMessage(
-  virtuosoRef: React.RefObject<VirtuosoHandle | null>,
-  messages: Message[],
-  fetchNextPage: () => void,
-  hasNextPage: boolean
-) {
-  const [highlightedId, setHighlightedId] = useState<string | null>(null);
-  const scrollTargetId = useRef<string | null>(null);
-
-  const performScroll = useCallback((index: number, messageId: string) => {
-    virtuosoRef.current?.scrollToIndex({
-      index,
-      align: 'center',
-      behavior: 'auto'
-    });
-
-    setTimeout(() => {
-      virtuosoRef.current?.scrollToIndex({
-        index,
-        align: 'center',
-        behavior: 'smooth'
-      });
-      setHighlightedId(messageId);
-      scrollTargetId.current = null;
-      
-      setTimeout(() => setHighlightedId(null), 3000);
-    }, 50);
-  }, [virtuosoRef]);
-
-  useEffect(() => {
-    if (scrollTargetId.current) {
-      const index = messages.findIndex(m => m.id === scrollTargetId.current);
-      if (index !== -1) {
-        performScroll(index, scrollTargetId.current);
-      } else if (hasNextPage) {
-        fetchNextPage();
-      } else {
-        scrollTargetId.current = null;
-      }
-    }
-  }, [messages, hasNextPage, fetchNextPage, performScroll]);
-
-  const scrollToMessage = (messageId: string) => {
-    const index = messages.findIndex(m => m.id === messageId);
-    if (index !== -1) {
-      performScroll(index, messageId);
-    } else if (hasNextPage) {
-      scrollTargetId.current = messageId;
-      fetchNextPage();
-    }
-  };
-
-  return { scrollToMessage, highlightedId };
-}
-
-export function useChatDetails(chatId: string) {
-  return useQuery({
-    queryKey: ['chat', chatId],
-    queryFn: async () => {
-      const result = await getFullChatAction(chatId);
-      if (!result.success) {
-        throw new Error(result.error);
-      }
-      return result.data;
-    },
-    enabled: !!chatId,
-    retry: false,
-  });
-}
-
-export function useSendMessage(chatId: string) {
-  const queryClient = useQueryClient();
-  const { user } = useSupabaseAuth();
-
-  return useMutation({
-    mutationFn: ({ 
-      content, 
-      replyToId, 
-      attachments = [] 
-    }: { 
-      content: string; 
-      replyToId?: string; 
-      attachments?: Attachment[] 
-    }) => sendMessageAction(chatId, content, replyToId, attachments),
-    onMutate: async ({ content, replyToId, attachments = [] }) => {
-      await queryClient.cancelQueries({ queryKey: ['messages', chatId] });
-      const previousData = queryClient.getQueryData<InfiniteData<Message[], Date | undefined>>(['messages', chatId]);
-
-      const optimisticMessage: Message = {
-        id: crypto.randomUUID(),
-        chatId,
-        senderId: user?.id || 'me',
-        content,
-        attachments,
-        replyToId: replyToId,
-        isRead: false,
-        createdAt: new Date(),
-        isOptimistic: true,
-      };
-
-      queryClient.setQueryData<InfiniteData<Message[], Date | undefined>>(['messages', chatId], (old) => {
-        if (!old) return { pages: [[optimisticMessage]], pageParams: [undefined] };
-        const newPages = [...old.pages];
-        const firstPage = [...(newPages[0] || [])];
-        firstPage.push(optimisticMessage);
-        newPages[0] = firstPage;
-        return { ...old, pages: newPages };
-      });
-
-      return { previousData };
-    },
-    onError: (_err, _variables, context) => {
-      if (context?.previousData) {
-        queryClient.setQueryData(['messages', chatId], context.previousData);
-      }
-    },
-    onSettled: () => {
-      queryClient.invalidateQueries({ queryKey: ['messages', chatId] });
-      queryClient.invalidateQueries({ queryKey: ['chats'] });
-    },
+    enabled: !!user,
   });
 }
 
 export function useMarkAsRead() {
   const queryClient = useQueryClient();
+  const { user } = useSupabaseAuth();
+
   return useMutation({
-    mutationFn: (chatId: string) => markAsReadAction(chatId),
-    onSuccess: (_data, _chatId) => {
+    mutationFn: async (chatId: string) => {
+      if (!user) return;
+
+      const { error } = await supabase
+        .from('messages')
+        .update({ is_read: true })
+        .eq('chat_id', chatId)
+        .eq('is_read', false)
+        .neq('sender_id', user.id); // Не позначаємо прочитаними свої повідомлення
+
+      if (error) throw error;
+    },
+    onSuccess: (_, chatId) => {
+      // Оновлюємо кеш повідомлень, щоб змінити статус is_read локально
+      queryClient.invalidateQueries({ queryKey: ['messages', chatId] });
+      // Оновлюємо список чатів, щоб прибрати лічильник непрочитаних
       queryClient.invalidateQueries({ queryKey: ['chats'] });
     },
   });
 }
 
-export function usePresence(_userId: string | undefined) {
+export function useChatDetails(chatId: string) {
+  const { user } = useSupabaseAuth();
+
+  return useQuery({
+    queryKey: ['chat', chatId],
+    queryFn: async () => {
+      if (!user) throw new Error('Unauthorized');
+
+      const { data, error } = await supabase
+        .from('chats')
+        .select(`
+          *,
+          participants:user!user_id(*),
+          recipient:user!recipient_id(*)
+        `)
+        .eq('id', chatId)
+        .single();
+
+      if (error) throw error;
+
+      // Normalize participants for the UI
+      const participants = [data.participants, data.recipient].filter(Boolean) as User[];
+      
+      return { ...data, participants } as FullChat;
+    },
+    enabled: !!chatId && !!user,
+  });
+}
+
+export function useMessages(chatId: string) {
+  const { user } = useSupabaseAuth();
+  // Викликаємо мутацію (переконайся, що назва збігається з експортованою функцією в цьому файлі)
+  const markAsReadMutation = useMarkAsRead(); 
+  const lastProcessedId = useRef<string | null>(null);
+
+  const query = useInfiniteQuery({
+    queryKey: ['messages', chatId],
+    queryFn: async ({ pageParam }) => {
+      if (!chatId) return [];
+      const { data, error } = await supabase
+        .from('messages')
+        .select('*, replyTo:messages!messagesReplyToIdFkey(id, content, sender:user!sender_id(name))')
+        .eq('chat_id', chatId)
+        .order('created_at', { ascending: false })
+        .limit(50)
+        .lt('created_at', pageParam || '9999-12-31');
+
+      if (error) throw error;
+      return data;
+    },
+    initialPageParam: undefined as string | undefined,
+    getNextPageParam: (lastPage) => {
+      if (!lastPage || lastPage.length < 50) return undefined;
+      return lastPage[lastPage.length - 1].created_at;
+    },
+    enabled: !!chatId,
+    refetchOnWindowFocus: false,
+  });
+
+  const latestMessage = query.data?.pages[0]?.[0];
+
+  useEffect(() => {
+    // Розпаковуємо значення для чіткості, щоб Biome не плутався
+    const msgId = latestMessage?.id;
+    const isRead = latestMessage?.is_read;
+    const senderId = latestMessage?.sender_id;
+    const currentUserId = user?.id;
+
+    if (
+      msgId && 
+      currentUserId && 
+      senderId !== currentUserId && 
+      !isRead && 
+      lastProcessedId.current !== msgId
+    ) {
+      lastProcessedId.current = msgId;
+      markAsReadMutation.mutate(chatId);
+    }
+    // Вказуємо конкретні примітиви в залежності — Biome це обожнює
+  }, [latestMessage, user, chatId, markAsReadMutation.mutate]);
+
+  return query;
+}
+// 3. Пошук (для ContactsList)
+export function useSearchUsers(queryText: string) {
+  return useQuery({
+    queryKey: ['users-search', queryText],
+    queryFn: async () => {
+      if (!queryText.trim()) return [];
+
+      // Отримуємо поточного юзера, щоб виключити його з пошуку
+      const { data: { user: currentUser } } = await supabase.auth.getUser();
+
+      const { data, error } = await supabase
+        .from('user')
+        .select('id, name, email, image')
+        // Шукаємо або по імені, або по email
+        .or(`name.ilike.%${queryText}%,email.ilike.%${queryText}%`)
+        // Виключаємо себе з результатів
+        .neq('id', currentUser?.id)
+        .limit(10);
+
+      if (error) {
+        console.error("Помилка пошуку користувачів:", error.message);
+        throw error;
+      }
+
+      return data;
+    },
+    enabled: queryText.trim().length > 1,
+  });
+}
+
+// 4. Присутність (для ContactsList)
+export function usePresence() {
   const onlineUsers = usePresenceStore((state) => state.onlineUsers);
   return { onlineUsers };
 }
 
-export function useSearchUsers(query: string) {
-  return useQuery({
-    queryKey: ['users', query],
-    queryFn: async () => {
-      if (query && query.length < 2) return [];
-      const result = await searchUsersAction(query);
-      if (!result.success) {
-        throw new Error(result.error);
-      }
-      return result.data;
+export function useChatTyping(chatId: string) {
+  const { user } = useSupabaseAuth();
+  const [isTyping, setIsTyping] = useState<Record<string, boolean>>({});
+  const channelRef = useRef<any>(null);
+
+  useEffect(() => {
+    // Перевіряємо наявність chatId та user.id
+    if (!chatId || !user?.id) return;
+
+    // Створюємо окремий канал тільки для присутності
+    const channel = supabase.channel(`typing:${chatId}`, {
+      config: { presence: { key: user.id } },
+    });
+
+    channel
+      .on('presence', { event: 'sync' }, () => {
+        const state = channel.presenceState();
+        const typingMap: Record<string, boolean> = {};
+        
+        for (const id in state) {
+          // Перевіряємо, чи хтось із пристроїв цього юзера друкує
+          // p as any дозволяє уникнути помилок типізації властивості isTyping
+          typingMap[id] = (state[id] as any[]).some((p) => p.isTyping);
+        }
+        setIsTyping(typingMap);
+      })
+      .subscribe(async (status) => {
+        if (status === 'SUBSCRIBED') {
+          await channel.track({ isTyping: false });
+        }
+      });
+
+    channelRef.current = channel;
+
+    return () => {
+      channel.unsubscribe();
+      channelRef.current = null;
+    };
+    // Додаємо user в залежності замість user.id, щоб Biome був щасливий
+  }, [chatId, user]);
+
+  const setTyping = useCallback((typing: boolean) => {
+    if (channelRef.current) {
+      channelRef.current.track({ isTyping: typing });
+    }
+  }, []);
+
+  return { isTyping, setTyping };
+}
+
+// 5. Відправка повідомлення
+export function useSendMessage(chatId: string) {
+  const { user } = useSupabaseAuth();
+
+  return useMutation({
+    mutationFn: async ({ 
+      content, 
+      replyToId,
+      attachments 
+    }: { 
+      content: string; 
+      replyToId?: string;
+      attachments?: { id: string; type: string; url: string; metadata: any }[];
+    }) => {
+      if (!user) throw new Error('Ви не авторизовані');
+      const { error } = await supabase.from('messages').insert({
+        chatId,
+        senderId: user.id,
+        content,
+        replyToId,
+        attachments: attachments || [],
+      });
+      if (error) throw error;
     },
-    staleTime: 30 * 1000,
+    onSuccess: () => {
+      // Real-time listener in useGlobalRealtime handles cache updates
+    },
+    onError: (error: Error) => {
+      toast.error(`Помилка відправки: ${error.message}`);
+    }
   });
 }
 
-export function useUpdateLastSeen(userId: string | undefined) {
-  useEffect(() => {
-    if (!userId) return;
-    const LAST_SEEN_THROTTLE = 1000 * 60 * 5;
-    const update = async () => {
-      const lastUpdate = localStorage.getItem(`lastSeenUpdate:${userId}`);
-      const now = Date.now();
-      if (!lastUpdate || now - Number(lastUpdate) > LAST_SEEN_THROTTLE) {
-        await updateLastSeenAction();
-        localStorage.setItem(`lastSeenUpdate:${userId}`, now.toString());
-      }
-    };
-    update();
-    const interval = setInterval(update, LAST_SEEN_THROTTLE);
-    return () => clearInterval(interval);
-  }, [userId]);
+export function useDeleteMessage(_chatId: string) {
+
+  return useMutation({
+    mutationFn: async (messageId: string) => {
+      const { error } = await supabase.from('messages').delete().eq('id', messageId);
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      // Real-time listener handles cache updates
+      toast.success('Повідомлення видалено');
+    },
+    onError: (error: Error) => {
+      toast.error(`Не вдалося видалити повідомлення: ${error.message}`);
+    }
+  });
 }
+
+export function useDeleteChat() {
+
+  return useMutation({
+    mutationFn: async (chatId: string) => {
+      const { error } = await supabase.from('chats').delete().eq('id', chatId);
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      // Real-time listener handles cache updates
+      toast.success('Чат видалено');
+    },
+    onError: (error: Error) => {
+      toast.error(`Не вдалося видалити чат: ${error.message}`);
+    }
+  });
+}
+
+
+
+export function useUpdateLastSeen() {
+  const { user } = useSupabaseAuth();
+
+  return useMutation({
+    mutationFn: async () => {
+      if (!user) return;
+
+      const { error } = await supabase
+        .from('user') // ТЕПЕР В ОДНИНІ, як у схемі
+        .update({ lastSeen: new Date().toISOString() })
+        .eq('id', user.id);
+
+      if (error) throw error;
+    },
+    onError: (error: Error) => {
+      console.error('Помилка оновлення статусу присутності:', error);
+    }
+  });
+}
+
+export function useScrollToMessage(
+  virtuosoRef: React.RefObject<any>,
+  messages: Message[],
+  fetchNextPage: () => void,
+  hasNextPage: boolean,
+) {
+  const [highlightedId, setHighlightedId] = useState<string | null>(null);
+
+  const scrollToMessage = useCallback(
+    async (messageId: string) => {
+      const index = messages.findIndex((m: Message) => m.id === messageId);
+
+      if (index !== -1) {
+        virtuosoRef.current?.scrollToIndex({
+          index,
+          behavior: 'smooth',
+          align: 'center',
+        });
+        setHighlightedId(messageId);
+        setTimeout(() => setHighlightedId(null), 2000);
+      } else {
+        if (hasNextPage) {
+          fetchNextPage();
+          toast.info('Підвантажуємо історію...');
+        }
+      }
+    },
+    [messages, hasNextPage, fetchNextPage, virtuosoRef],
+  );
+
+  return { scrollToMessage, highlightedId };
+}
+

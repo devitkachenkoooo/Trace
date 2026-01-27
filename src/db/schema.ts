@@ -1,5 +1,5 @@
-import { boolean, jsonb, pgTable, text, timestamp } from 'drizzle-orm/pg-core';
 import { relations } from 'drizzle-orm';
+import { boolean, jsonb, pgTable, text, timestamp } from 'drizzle-orm/pg-core';
 import type { Attachment } from '@/types';
 
 // --- ТАБЛИЦЯ КОРИСТУВАЧІВ (Узгоджена з Supabase) ---
@@ -51,16 +51,20 @@ export const usersRelations = relations(users, ({ many }) => ({
 
 export const chatsRelations = relations(chats, ({ one, many }) => ({
   user: one(users, { fields: [chats.userId], references: [users.id], relationName: 'creator' }),
-  recipient: one(users, { fields: [chats.recipientId], references: [users.id], relationName: 'recipient' }),
+  recipient: one(users, {
+    fields: [chats.recipientId],
+    references: [users.id],
+    relationName: 'recipient',
+  }),
   messages: many(messages),
 }));
 
 export const messagesRelations = relations(messages, ({ one }) => ({
   chat: one(chats, { fields: [messages.chatId], references: [chats.id] }),
   sender: one(users, { fields: [messages.senderId], references: [users.id] }),
-  replyTo: one(messages, { 
-    fields: [messages.replyToId], 
+  replyTo: one(messages, {
+    fields: [messages.replyToId],
     references: [messages.id],
-    relationName: 'replyingTo' 
+    relationName: 'replyingTo',
   }),
 }));

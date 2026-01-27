@@ -1,10 +1,12 @@
 'use client';
 
-import { createClient } from '@/lib/supabase/client';
-import { createContext, useContext, useEffect, useState } from 'react';
 import type { User } from '@supabase/supabase-js';
-
+import { createContext, useContext, useEffect, useState } from 'react';
 import { useGlobalRealtime } from '@/hooks/useGlobalRealtime';
+import { createClient } from '@/lib/supabase/client';
+
+// Виносимо за межі, щоб не створювати новий екземпляр при кожному рендері
+const supabase = createClient();
 
 interface SupabaseAuthContextType {
   user: User | null;
@@ -18,13 +20,20 @@ export const useSupabaseAuth = () => useContext(SupabaseAuthContext);
 export function SupabaseAuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
   const [loading, setLoading] = useState(true);
-  const supabase = createClient();
 
-  // Initialize global realtime listener
+  // Ініціалізуємо глобальний Realtime (він тепер стабільний завдяки Singleton supabase)
   useGlobalRealtime();
 
   useEffect(() => {
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+    // Отримуємо поточну сесію відразу
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      setUser(session?.user ?? null);
+      setLoading(false);
+    });
+
+    const {
+      data: { subscription },
+    } = supabase.auth.onAuthStateChange((_event, session) => {
       setUser(session?.user ?? null);
       setLoading(false);
     });
@@ -32,7 +41,7 @@ export function SupabaseAuthProvider({ children }: { children: React.ReactNode }
     return () => {
       subscription.unsubscribe();
     };
-  }, [supabase]);
+  }, []); // Залежність supabase видалена, бо це Singleton
 
   return (
     <SupabaseAuthContext.Provider value={{ user, loading }}>

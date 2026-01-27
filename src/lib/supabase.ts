@@ -13,12 +13,12 @@ export const supabase = createClient(supabaseUrl, supabaseAnonKey, {
   auth: {
     persistSession: false, // Це вимкне спроби клієнта знайти сесію самостійно
     autoRefreshToken: false,
-    detectSessionInUrl: false
-  }
+    detectSessionInUrl: false,
+  },
 });
 
 // Client for server-side secure operations (e.g., uploading files via Server Actions)
 // This client bypasses RLS and should ONLY be used in server-side code.
-export const supabaseService = supabaseServiceKey 
+export const supabaseService = supabaseServiceKey
   ? createClient(supabaseUrl, supabaseServiceKey)
   : null;
