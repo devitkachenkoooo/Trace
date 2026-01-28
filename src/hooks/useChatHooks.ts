@@ -32,13 +32,14 @@ export function useChats() {
           *,
           user:user_id(*),      
           recipient:recipient_id(*),
+          userLastRead:user_last_read_id(id, created_at),
+          recipientLastRead:recipient_last_read_id(id, created_at),
           messages!messages_chat_id_chats_id_fk(
             id, 
             content, 
             createdAt:created_at, 
             senderId:sender_id, 
             chat_id:chat_id, 
-            isRead:is_read, 
             attachments
           )
         `)
@@ -61,23 +62,24 @@ export function useMarkAsRead() {
   const { user } = useSupabaseAuth();
 
   return useMutation({
-    mutationFn: async (chatId: string) => {
-      if (!user) return;
+    mutationFn: async ({ chatId, messageId }: { chatId: string; messageId: string }) => {
+      if (!user?.id) return;
 
-      const { error } = await supabase
-        .from('messages')
-        .update({ is_read: true })
-        .eq('chat_id', chatId)
-        .eq('is_read', false)
-        .neq('sender_id', user.id); // Не позначаємо прочитаними свої повідомлення
+      const { error } = await supabase.rpc('mark_chat_as_read', {
+        p_chat_id: chatId,        // використовуємо p_ для чіткості з SQL параметрами
+        p_message_id: messageId,
+        p_user_id: user.id        // ПЕРЕДАЄМО ID ЯВНО, щоб уникнути NULL сесії
+      });
 
-      if (error) throw error;
+      if (error) {
+        console.error('Error marking as read:', error);
+        throw error;
+      }
     },
-    onSuccess: (_, chatId) => {
-      // Оновлюємо кеш повідомлень, щоб змінити статус is_read локально
-      queryClient.invalidateQueries({ queryKey: ['messages', chatId] });
-      // Оновлюємо список чатів, щоб прибрати лічильник непрочитаних
+    onSuccess: (_, { chatId }) => {
+      // Оновлюємо кеш, щоб MessageBubble побачив нову дату в recipientLastReadAt
       queryClient.invalidateQueries({ queryKey: ['chats'] });
+      queryClient.invalidateQueries({ queryKey: ['chat', chatId] });
     },
   });
 }
@@ -95,7 +97,9 @@ export function useChatDetails(chatId: string) {
         .select(`
           *,
           participants:user!user_id(*),
-          recipient:user!recipient_id(*)
+          recipient:user!recipient_id(*),
+          userLastRead:user_last_read_id(id, created_at),
+          recipientLastRead:recipient_last_read_id(id, created_at)
         `)
         .eq('id', chatId)
         .single();
@@ -126,7 +130,6 @@ export function useMessages(chatId: string) {
         /**
          * ВИПРАВЛЕННЯ PGRST200:
          * Використовуємо 'replyTo:reply_to_id(*)' замість імені ключа fkey.
-         * Це змушує Supabase автоматично визначити зв'язок через колонку.
          */
         .select('*, replyTo:reply_to_id(*)')
         .eq('chat_id', chatId)
@@ -139,41 +142,37 @@ export function useMessages(chatId: string) {
         throw error;
       }
       
-      // Повертаємо масив у правильному порядку для чату (старі вгорі, нові внизу)
-      return (data || []).reverse();
+      // Повертаємо масив (нові повідомлення будуть в кінці масиву сторінки)
+      const normalizedData = (data || []).map((msg: any) => normalizePayload(msg));
+      return (normalizedData as Message[]).reverse();
     },
     initialPageParam: undefined as string | undefined,
     getPreviousPageParam: (firstPage) => {
       if (!firstPage || firstPage.length < 50) return undefined;
-      return firstPage[0].created_at;
+      return (firstPage[0] as Message).createdAt;
     },
     getNextPageParam: () => undefined,
     enabled: !!chatId,
     refetchOnWindowFocus: false,
   });
 
-  // --- АВТОМАТИЧНЕ ПРОЧИТАННЯ ---
-  const pages = query.data?.pages || [];
-  const allMessages = pages.flat();
-  const latestMessage = allMessages.length > 0 ? allMessages[allMessages.length - 1] : null;
-
+  // --- АВТОМАТИЧНЕ ПРОЧИТАННЯ (ОНОВЛЕНО) ---
   useEffect(() => {
-    const msgId = latestMessage?.id;
-    // Перевіряємо обидва варіанти написання (camelCase від humps та snake_case від бази)
-    const isRead = latestMessage?.is_read || (latestMessage as any)?.isRead;
-    const senderId = latestMessage?.sender_id || (latestMessage as any)?.senderId;
+    const allMessages = query.data?.pages.flat() || [];
+    if (allMessages.length === 0 || !user?.id) return;
 
-    if (
-      msgId && 
-      user?.id && 
-      senderId !== user.id && 
-      !isRead && 
-      lastProcessedId.current !== msgId
-    ) {
+    const latestMessage = allMessages.reduce((prev, current) => {
+      return (new Date(current.createdAt) > new Date(prev.createdAt)) ? current : prev;
+    });
+    
+    const msgId = latestMessage.id;
+    const msgSenderId = latestMessage.sender_id || latestMessage.senderId;
+
+    if (msgId && msgSenderId !== user.id && lastProcessedId.current !== msgId) {
       lastProcessedId.current = msgId;
-      markAsReadMutation.mutate(chatId);
+      markAsReadMutation.mutate({ chatId, messageId: msgId });
     }
-  }, [latestMessage, user?.id, chatId, markAsReadMutation]);
+  }, [query.data?.pages, user?.id, chatId, markAsReadMutation.mutate]);
 
   return query;
 }

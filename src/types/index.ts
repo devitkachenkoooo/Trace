@@ -24,19 +24,22 @@ export interface Message {
   id: string;
   chatId: string;
   senderId: string;
+  sender_id?: string;
   content: string;
   attachments: Attachment[];
-  isRead: boolean;
-  createdAt: Date;
+  createdAt: string;
   updated_at?: string | null;
-  sender_id?: string; // For compatibility
   replyToId?: string | null;
+  reply_to_id?: string | null;
   replyDetails?: {
     id: string;
     sender: { name?: string | null };
     content: string;
+    senderId?: string;
+    attachments?: Attachment[];
   } | null;
   replyTo?: Message;
+  sender?: User | null;
   isOptimistic?: boolean;
 }
 
@@ -44,8 +47,12 @@ export interface Chat {
   id: string;
   userId: string;
   recipientId?: string | null;
+  userLastReadId?: string | null;
+  recipientLastReadId?: string | null;
+  userLastRead?: { id: string; createdAt: string } | null;
+  recipientLastRead?: { id: string; createdAt: string } | null;
   title: string;
-  createdAt: Date;
+  createdAt: string;
 }
 
 export interface FullChat extends Chat {

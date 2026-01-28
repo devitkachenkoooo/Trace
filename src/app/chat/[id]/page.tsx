@@ -125,6 +125,11 @@ const { isTyping: typingUsers, setTyping } = useChatTyping(id);
     return 'не в мережі';
   };
 
+  const isUserCreator = chat.userId === user?.id;
+  const recipientLastReadAt = isUserCreator 
+    ? chat.recipientLastRead?.createdAt 
+    : chat.userLastRead?.createdAt;
+
   return (
     <div className="flex flex-col h-[calc(100dvh-64px)] w-full bg-background relative overflow-hidden">
       {/* Header */}
@@ -183,6 +188,7 @@ const { isTyping: typingUsers, setTyping } = useChatTyping(id);
                   key={message.id}
                   message={message}
                   currentUserId={user?.id}
+                  recipientLastReadAt={recipientLastReadAt}
                   onReply={handleReply}
                   onEdit={handleEdit}
                   onDelete={setMessageToDelete}

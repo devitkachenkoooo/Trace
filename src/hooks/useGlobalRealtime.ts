@@ -61,11 +61,15 @@ export function useGlobalRealtime(user: User | null) {
       )
       .on(
         'postgres_changes',
-        { event: 'INSERT', schema: 'public', table: 'chats' },
+        { event: '*', schema: 'public', table: 'chats' },
         () => {
           queryClient.invalidateQueries({
             queryKey: ['chats'],
             exact: false,
+          });
+          queryClient.invalidateQueries({
+             queryKey: ['chat'],
+             exact: false,
           });
         },
       )

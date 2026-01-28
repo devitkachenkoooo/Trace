@@ -1,8 +1,8 @@
 'use client';
 
-import { motion } from 'framer-motion';
+import { AnimatePresence, motion } from 'framer-motion';
 import Linkify from 'linkify-react';
-import { Clock, Download, FileIcon, Reply, Trash2 } from 'lucide-react';
+import { Check, CheckCheck, Clock, Download, FileIcon, Reply, Trash2 } from 'lucide-react';
 import {
   ContextMenu,
   ContextMenuContent,
@@ -18,6 +18,7 @@ import { MessageMediaGrid } from './MessageMediaGrid';
 interface MessageBubbleProps {
   message: Message;
   currentUserId: string | undefined;
+  recipientLastReadAt?: string | null;
   onReply: (message: Message) => void;
   onEdit: (message: Message) => void;
   onDelete: (messageId: string) => void;
@@ -25,10 +26,10 @@ interface MessageBubbleProps {
   isHighlighed?: boolean;
   otherParticipantName?: string;
 }
-
 export function MessageBubble({
   message,
   currentUserId,
+  recipientLastReadAt,
   onReply,
   onEdit,
   onDelete,
@@ -37,8 +38,12 @@ export function MessageBubble({
   otherParticipantName,
 }: MessageBubbleProps) {
   // Перевіряємо обидва варіанти написання ID для сумісності з БД та оптимістичним об'єктом
-  const isMe = (message.senderId || (message as any).sender_id) === currentUserId;
+  const senderId = message.senderId || message.sender_id;
+  const isMe = senderId === currentUserId;
   
+  const isRead = isMe && recipientLastReadAt && 
+    new Date(message.createdAt).getTime() <= new Date(recipientLastReadAt).getTime();
+
   const imageAttachments = message.attachments?.filter((a) => a.type === 'image') || [];
   const fileAttachments = message.attachments?.filter((a) => a.type === 'file') || [];
 
@@ -70,14 +75,19 @@ export function MessageBubble({
               {/* Reply Context - Виправлена логіка */}
               {(() => {
                 // Малюємо ТІЛЬКИ якщо є ID того, на що відповідаємо
-                const rId = message.replyToId || (message as any).reply_to_id;
+                const rId = message.replyToId || message.reply_to_id;
                 if (!rId) return null;
 
-                const reply = message.replyDetails || message.replyTo || (message as any).replyTo;
+                const reply = message.replyDetails || message.replyTo;
                 if (!reply) return null;
 
+                // Determine reply sender ID
+                const replySenderId = reply.senderId || 
+                                    (reply as any).sender_id || 
+                                    (reply as Message).senderId;
+                
                 const senderName = reply.sender?.name || 
-                                 (reply.senderId === currentUserId ? 'You' : otherParticipantName);
+                                 (replySenderId === currentUserId ? 'You' : otherParticipantName);
 
                 return (
                   <button
@@ -92,7 +102,7 @@ export function MessageBubble({
                       {senderName || 'Unknown'}
                     </span>
                     <span className="text-white/60 line-clamp-1 italic">
-                      {reply.content || (reply.attachments?.length ? '📎 Attachment' : '...')}
+                      {reply.content || (reply.attachments && reply.attachments.length ? '📎 Attachment' : '...')}
                     </span>
                   </button>
                 );
@@ -154,10 +164,39 @@ export function MessageBubble({
                 </span>
                 {message.updated_at && 
                  new Date(message.updated_at).getTime() - new Date(message.createdAt).getTime() > 1000 && (
-                  <span className="text-[9px] italic opacity-70">(відредаговано)</span>
+                  <span className="text-[9px] italic opacity-70 ml-1">(відредаговано)</span>
                 )}
+                
                 {isMe && (
-                  <span className="text-[9px] font-bold">{message.isRead ? '••' : '•'}</span>
+                  <div className="flex items-center ml-1">
+                    <AnimatePresence mode="wait">
+                      {isRead ? (
+                        <motion.div
+                          key="read"
+                          initial={{ opacity: 0, scale: 0.5, rotate: -15 }}
+                          animate={{ opacity: 1, scale: 1, rotate: 0 }}
+                          exit={{ opacity: 0, scale: 0.5 }}
+                          transition={{ 
+                            type: 'spring', 
+                            stiffness: 500, 
+                            damping: 30 
+                          }}
+                        >
+                          <CheckCheck className="w-3 h-3 text-blue-400" strokeWidth={3} />
+                        </motion.div>
+                      ) : (
+                        <motion.div
+                          key="sent"
+                          initial={{ opacity: 0, scale: 0.5 }}
+                          animate={{ opacity: 1, scale: 1 }}
+                          exit={{ opacity: 0, scale: 0.5 }}
+                          transition={{ duration: 0.15 }}
+                        >
+                          <Check className="w-3 h-3 text-blue-100/40" strokeWidth={3} />
+                        </motion.div>
+                      )}
+                    </AnimatePresence>
+                  </div>
                 )}
               </div>
             </div>
