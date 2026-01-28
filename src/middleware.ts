@@ -32,24 +32,36 @@ export async function middleware(request: NextRequest) {
     }
   );
 
-  const { data: { user } } = await supabase.auth.getUser();
+  // Використовуємо try/catch, щоб Middleware не "падав", якщо з сесією щось не так
+  try {
+    const { data: { session } } = await supabase.auth.getSession();
+    const user = session?.user ?? null;
 
-  const url = request.nextUrl.clone();
-  const path = url.pathname;
+    const url = request.nextUrl.clone();
+    const path = url.pathname;
 
-  // 1. Визначаємо "Білий список" (публічні сторінки)
-  const isPublicPage = path === '/' || path.startsWith('/auth');
+    const isPublicPage = path === '/' || path.startsWith('/auth');
 
-  // 2. Якщо юзера немає і сторінка НЕ в білому списку — моментальний редірект
-  if (!user && !isPublicPage) {
-    url.pathname = '/';
-    return NextResponse.redirect(url);
-  }
+    // Якщо юзера немає і сторінка захищена — на головну
+    if (!user && !isPublicPage) {
+      url.pathname = '/';
+      return NextResponse.redirect(url);
+    }
 
-  // 3. Якщо юзер авторизований і намагається зайти на головну/auth — кидаємо в чат
-  if (user && isPublicPage) {
-    url.pathname = '/chat';
-    return NextResponse.redirect(url);
+    // Якщо юзер вже є і він на сторінці логіну — в чат
+    if (user && isPublicPage) {
+      url.pathname = '/chat';
+      return NextResponse.redirect(url);
+    }
+
+  } catch (e) {
+    // Якщо сталася будь-яка помилка авторизації (сесія біта тощо)
+    // Просто кидаємо на головну, якщо ми не на публічній сторінці
+    const url = request.nextUrl.clone();
+    if (url.pathname !== '/' && !url.pathname.startsWith('/auth')) {
+      url.pathname = '/';
+      return NextResponse.redirect(url);
+    }
   }
 
   return response;
@@ -57,10 +69,6 @@ export async function middleware(request: NextRequest) {
 
 export const config = {
   matcher: [
-    /*
-     * Виключаємо лише сервісні шляхи Next.js та статичні файли.
-     * Весь інший трафік проходить через middleware.
-     */
     '/((?!api|_next/static|_next/image|favicon.ico|.*\\.(?:svg|png|jpg|jpeg|gif|webp)$).*)',
   ],
 };

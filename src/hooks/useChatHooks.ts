@@ -10,6 +10,8 @@ import {
 } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import { RealtimeChannel } from '@supabase/supabase-js';
+import { camelizeKeys } from 'humps';
+import { useRouter } from 'next/navigation';
 
 // Залишаємо тільки ОДИН варіант авторизації та клієнта
 import { useSupabaseAuth } from '@/components/SupabaseAuthProvider';
@@ -118,22 +120,33 @@ export function useChatDetails(chatId: string) {
 export function useMessages(chatId: string) {
   const { user } = useSupabaseAuth();
   const queryClient = useQueryClient();
-  const markAsReadMutation = useMarkAsRead(); 
+  const markAsReadMutation = useMarkAsRead();
   const lastProcessedId = useRef<string | null>(null);
 
   const query = useInfiniteQuery({
     queryKey: ['messages', chatId],
     queryFn: async ({ pageParam }) => {
       if (!chatId) return [];
+
       const { data, error } = await supabase
         .from('messages')
-        .select('*, replyTo:messages!reply_to_id(*)')
+        /**
+         * ВИПРАВЛЕННЯ PGRST200:
+         * Використовуємо 'replyTo:reply_to_id(*)' замість імені ключа fkey.
+         * Це змушує Supabase автоматично визначити зв'язок через колонку.
+         */
+        .select('*, replyTo:reply_to_id(*)')
         .eq('chat_id', chatId)
         .order('created_at', { ascending: false })
         .limit(50)
         .lt('created_at', pageParam || '9999-12-31');
 
-      if (error) throw error;
+      if (error) {
+        console.error("Помилка завантаження повідомлень:", error.message);
+        throw error;
+      }
+      
+      // Повертаємо масив у правильному порядку для чату (старі вгорі, нові внизу)
       return (data || []).reverse();
     },
     initialPageParam: undefined as string | undefined,
@@ -146,6 +159,7 @@ export function useMessages(chatId: string) {
     refetchOnWindowFocus: false,
   });
 
+  // --- REAL-TIME ЛОГІКА ---
   useEffect(() => {
     if (!chatId) return;
 
@@ -154,16 +168,15 @@ export function useMessages(chatId: string) {
       .on(
         'postgres_changes',
         {
-          event: '*', 
+          event: '*',
           schema: 'public',
           table: 'messages',
           filter: `chat_id=eq.${chatId}`,
         },
         (payload) => {
-          // --- ОБРОБКА ВИДАЛЕННЯ (від іншого юзера) ---
+          // 1. ВИДАЛЕННЯ
           if (payload.eventType === 'DELETE') {
             const deletedId = payload.old?.id;
-            
             if (deletedId) {
               queryClient.setQueryData(['messages', chatId], (old: any) => {
                 if (!old) return old;
@@ -177,25 +190,41 @@ export function useMessages(chatId: string) {
             }
           }
 
-          // --- ОБРОБКА НОВОГО ПОВІДОМЛЕННЯ (від іншого юзера) ---
+          // 2. НОВЕ ПОВІДОМЛЕННЯ
           if (payload.eventType === 'INSERT') {
-            const newMessage = payload.new;
+            const newMessage = camelizeKeys(payload.new) as any;
 
             queryClient.setQueryData(['messages', chatId], (old: any) => {
               if (!old) return old;
-              
-              // Якщо ми вже додали це повідомлення оптимістично — ігноруємо дубль
-              const exists = old.pages.some((page: any) => 
+
+              // Перевірка на дублікати (щоб не було копій від оптимістичного оновлення)
+              const exists = old.pages.some((page: any) =>
                 page.some((m: any) => m.id === newMessage.id)
               );
-
               if (exists) return old;
 
               const newPages = [...old.pages];
               const lastIdx = newPages.length - 1;
               newPages[lastIdx] = [...newPages[lastIdx], newMessage];
-              
+
               return { ...old, pages: newPages };
+            });
+          }
+
+          // 3. РЕДАГУВАННЯ
+          if (payload.eventType === 'UPDATE') {
+            const updatedMessage = camelizeKeys(payload.new) as any;
+
+            queryClient.setQueryData(['messages', chatId], (old: any) => {
+              if (!old) return old;
+              return {
+                ...old,
+                pages: old.pages.map((page: any) =>
+                  page.map((msg: any) =>
+                    msg.id === updatedMessage.id ? { ...msg, ...updatedMessage } : msg
+                  )
+                ),
+              };
             });
           }
         }
@@ -207,18 +236,24 @@ export function useMessages(chatId: string) {
     };
   }, [chatId, queryClient]);
 
-  // Логіка автоматичного прочитання
+  // --- АВТОМАТИЧНЕ ПРОЧИТАННЯ ---
   const pages = query.data?.pages || [];
   const allMessages = pages.flat();
   const latestMessage = allMessages.length > 0 ? allMessages[allMessages.length - 1] : null;
 
   useEffect(() => {
     const msgId = latestMessage?.id;
+    // Перевіряємо обидва варіанти написання (camelCase від humps та snake_case від бази)
     const isRead = latestMessage?.is_read || (latestMessage as any)?.isRead;
     const senderId = latestMessage?.sender_id || (latestMessage as any)?.senderId;
-    
-    // Позначаємо як прочитане тільки якщо повідомлення НЕ від нас
-    if (msgId && user?.id && senderId !== user.id && !isRead && lastProcessedId.current !== msgId) {
+
+    if (
+      msgId && 
+      user?.id && 
+      senderId !== user.id && 
+      !isRead && 
+      lastProcessedId.current !== msgId
+    ) {
       lastProcessedId.current = msgId;
       markAsReadMutation.mutate(chatId);
     }
@@ -341,10 +376,7 @@ export function useSendMessage(chatId: string) {
           reply_to_id: replyToId || null,
           attachments: attachments || [],
         })
-        .select(`
-          *,
-          replyTo:messages!reply_to_id(*)
-        `)
+        .select('*, replyTo:reply_to_id(*)')
         .single();
 
       if (error) {
@@ -481,22 +513,37 @@ export function useDeleteMessage(chatId: string) {
 }
 
 export function useDeleteChat() {
+  const router = useRouter();
+  const queryClient = useQueryClient();
 
   return useMutation({
     mutationFn: async (chatId: string) => {
-      const { error } = await supabase.from('chats').delete().eq('id', chatId);
+      const { error } = await supabase
+        .from('chats')
+        .delete()
+        .eq('id', chatId);
+
       if (error) throw error;
+      return chatId;
     },
-    onSuccess: () => {
-      // Real-time listener handles cache updates
+    onSuccess: (chatId) => {
+      // 1. Оновлюємо кеш списку чатів, щоб видалений чат зник з інтерфейсу
+      queryClient.setQueryData(['chats'], (old: any) => {
+        if (!old) return old;
+        return old.filter((chat: any) => chat.id !== chatId);
+      });
+
+      // 2. Виводимо сповіщення
       toast.success('Чат видалено');
+
+      // 3. Редірект на головну сторінку месенджера
+      router.push('/chat'); 
     },
     onError: (error: Error) => {
       toast.error(`Не вдалося видалити чат: ${error.message}`);
     }
   });
 }
-
 
 
 export function useUpdateLastSeen() {
