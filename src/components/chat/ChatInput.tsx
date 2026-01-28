@@ -4,9 +4,10 @@ import { type InfiniteData, useQueryClient } from '@tanstack/react-query';
 import { Paperclip, Send } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useAttachment } from '@/hooks/useAttachment';
-import { useSendMessage } from '@/hooks/useChatHooks';
+import { useSendMessage, useEditMessage } from '@/hooks/useChatHooks';
 import { cn } from '@/lib/utils';
 import type { Message } from '@/types';
+import { useSupabaseAuth } from '@/components/SupabaseAuthProvider';
 import { ComposerAddons } from './ComposerAddons';
 
 interface ChatInputProps {
@@ -14,6 +15,8 @@ interface ChatInputProps {
   setTyping: (typing: boolean) => void;
   replyToId?: string | null;
   onReplyCancel?: () => void;
+  editingMessage?: Message | null;
+  onEditCancel?: () => void;
   onMessageSent?: () => void;
 }
 
@@ -22,14 +25,31 @@ export default function ChatInput({
   setTyping,
   replyToId,
   onReplyCancel,
+  editingMessage, // Added editingMessage prop
+  onEditCancel, // Added onEditCancel prop
   onMessageSent,
 }: ChatInputProps) {
+  const { user } = useSupabaseAuth(); // Ensure user is available if needed, though useSendMessage handles it
   const [content, setContent] = useState('');
   const { attachments, uploadFile, removeAttachment, clearAttachments, isUploading } =
     useAttachment(chatId);
   
   // Використовуємо оновлений хук з Optimistic UI
   const sendMessage = useSendMessage(chatId);
+  const editMessage = useEditMessage(chatId);
+
+  // Update content when editingMessage changes
+  useEffect(() => {
+    if (editingMessage) {
+      setContent(editingMessage.content || '');
+      if (textareaRef.current) {
+        textareaRef.current.focus();
+      }
+    } else {
+      setContent('');
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [editingMessage]);
 
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -83,17 +103,26 @@ export default function ChatInput({
     clearAttachments();
 
     try {
-      // 2. Викликаємо мутацію (ID згенерується всередині хука)
-      await sendMessage.mutateAsync({
-        content: trimmed,
-        replyToId: replyToId || undefined,
-        attachments: attachmentsBackup,
-      });
+      if (editingMessage) {
+        // РЕДАГУВАННЯ
+        await editMessage.mutateAsync({
+          messageId: editingMessage.id,
+          content: trimmed,
+        });
+        if (onEditCancel) onEditCancel();
+      } else {
+        // ВІДПРАВКА НОВОГО
+        await sendMessage.mutateAsync({
+          content: trimmed,
+          replyToId: replyToId || undefined,
+          attachments: attachmentsBackup,
+        });
+      }
       
       if (onMessageSent) onMessageSent();
     } catch (error) {
       // Якщо впало — повертаємо текст назад, щоб юзер не втратив повідомлення
-      console.error('Failed to send:', error);
+      console.error('Failed to process:', error);
       setContent(trimmed);
     }
   };
@@ -126,6 +155,8 @@ export default function ChatInput({
         onAttachmentRemove={removeAttachment}
         replyTo={replyToMessage}
         onReplyCancel={onReplyCancel}
+        editingMessage={editingMessage || null}
+        onEditCancel={onEditCancel}
         otherParticipantName="Співрозмовник" 
       />
 

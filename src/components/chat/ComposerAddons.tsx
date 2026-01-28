@@ -8,6 +8,8 @@ import { AttachmentPreview } from './AttachmentPreview';
 interface ComposerAddonsProps {
   replyTo?: Message | null;
   onReplyCancel?: () => void;
+  editingMessage?: Message | null;
+  onEditCancel?: () => void;
   attachments: PendingAttachment[];
   onAttachmentRemove: (id: string) => void;
   otherParticipantName?: string;
@@ -16,17 +18,38 @@ interface ComposerAddonsProps {
 export function ComposerAddons({
   replyTo,
   onReplyCancel,
+  editingMessage,
+  onEditCancel,
   attachments,
   onAttachmentRemove,
   otherParticipantName,
 }: ComposerAddonsProps) {
-  if (!replyTo && attachments.length === 0) return null;
+  if (!replyTo && !editingMessage && attachments.length === 0) return null;
 
   return (
     <div
       className="px-4 py-3 border-t border-white/5 backdrop-blur-md bg-white/5 space-y-2"
       style={{ willChange: 'transform' }}
     >
+      {/* Editing Preview */}
+      {editingMessage && (
+        <div className="flex items-center gap-3 py-2 border-s-4 border-amber-500 px-3 bg-amber-500/5 rounded-e-lg relative group">
+          <div className="flex-1 min-w-0">
+            <p className="text-xs font-semibold text-amber-400">
+              Editing message
+            </p>
+            <p className="text-sm text-gray-300 truncate">{editingMessage.content}</p>
+          </div>
+          <button
+            type="button"
+            onClick={onEditCancel}
+            className="p-1 hover:bg-white/10 rounded-full text-gray-400 transition-colors duration-300"
+          >
+            <X size={16} />
+          </button>
+        </div>
+      )}
+
       {/* Reply Preview */}
       {replyTo && (
         <div className="flex items-center gap-3 py-2 border-s-4 border-blue-500 px-3 bg-blue-500/5 rounded-e-lg relative group">

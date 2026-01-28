@@ -9,18 +9,15 @@ import {
   useQueryClient 
 } from '@tanstack/react-query';
 import { toast } from 'sonner';
-import { RealtimeChannel } from '@supabase/supabase-js';
 import { camelizeKeys } from 'humps';
 import { useRouter } from 'next/navigation';
 
 // Залишаємо тільки ОДИН варіант авторизації та клієнта
 import { useSupabaseAuth } from '@/components/SupabaseAuthProvider';
-import { createClient } from '@/lib/supabase/client';
+import { supabase } from '@/lib/supabase/client';
+import { normalizePayload } from '@/lib/supabase/utils';
 import { usePresenceStore } from '@/store/usePresenceStore';
 import type { FullChat, Message, User } from '@/types';
-
-// Створюємо клієнт supabase ОДИН раз
-const supabase = createClient();
 
 // 1. Отримання чатів
 export function useChats() {
@@ -173,7 +170,7 @@ export function useMessages(chatId: string) {
           table: 'messages',
           filter: `chat_id=eq.${chatId}`,
         },
-        (payload) => {
+        (payload: any) => {
           // 1. ВИДАЛЕННЯ
           if (payload.eventType === 'DELETE') {
             const deletedId = payload.old?.id;
@@ -192,7 +189,7 @@ export function useMessages(chatId: string) {
 
           // 2. НОВЕ ПОВІДОМЛЕННЯ
           if (payload.eventType === 'INSERT') {
-            const newMessage = camelizeKeys(payload.new) as any;
+            const newMessage = normalizePayload<Message>(payload.new);
 
             queryClient.setQueryData(['messages', chatId], (old: any) => {
               if (!old) return old;
@@ -213,7 +210,7 @@ export function useMessages(chatId: string) {
 
           // 3. РЕДАГУВАННЯ
           if (payload.eventType === 'UPDATE') {
-            const updatedMessage = camelizeKeys(payload.new) as any;
+            const updatedMessage = normalizePayload<Message>(payload.new);
 
             queryClient.setQueryData(['messages', chatId], (old: any) => {
               if (!old) return old;
@@ -312,12 +309,11 @@ export function useChatTyping(chatId: string) {
   const { user } = useSupabaseAuth();
   const [isTyping, setIsTyping] = useState<Record<string, boolean>>({});
   const channelRef = useRef<any>(null);
+  const timeoutRef = useRef<NodeJS.Timeout | null>(null);
 
   useEffect(() => {
-    // Перевіряємо наявність chatId та user.id
     if (!chatId || !user?.id) return;
 
-    // Створюємо окремий канал тільки для присутності
     const channel = supabase.channel(`typing:${chatId}`, {
       config: { presence: { key: user.id } },
     });
@@ -328,13 +324,11 @@ export function useChatTyping(chatId: string) {
         const typingMap: Record<string, boolean> = {};
         
         for (const id in state) {
-          // Перевіряємо, чи хтось із пристроїв цього юзера друкує
-          // p as any дозволяє уникнути помилок типізації властивості isTyping
           typingMap[id] = (state[id] as any[]).some((p) => p.isTyping);
         }
         setIsTyping(typingMap);
       })
-      .subscribe(async (status) => {
+      .subscribe(async (status: string) => {
         if (status === 'SUBSCRIBED') {
           await channel.track({ isTyping: false });
         }
@@ -343,19 +337,73 @@ export function useChatTyping(chatId: string) {
     channelRef.current = channel;
 
     return () => {
+      if (timeoutRef.current) clearTimeout(timeoutRef.current);
       channel.unsubscribe();
       channelRef.current = null;
     };
-    // Додаємо user в залежності замість user.id, щоб Biome був щасливий
   }, [chatId, user]);
 
   const setTyping = useCallback((typing: boolean) => {
     if (channelRef.current) {
       channelRef.current.track({ isTyping: typing });
+
+      // Auto-cleanup timer: 3 seconds
+      if (timeoutRef.current) clearTimeout(timeoutRef.current);
+      
+      if (typing) {
+        timeoutRef.current = setTimeout(() => {
+          channelRef.current?.track({ isTyping: false });
+        }, 3000);
+      }
     }
   }, []);
 
   return { isTyping, setTyping };
+}
+
+export function useEditMessage(chatId: string) {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async ({ messageId, content }: { messageId: string; content: string }) => {
+      const { data, error } = await supabase
+        .from('messages')
+        .update({ content, updated_at: new Date().toISOString() })
+        .eq('id', messageId)
+        .select('*, replyTo:reply_to_id(*)')
+        .single();
+
+      if (error) throw error;
+      return data;
+    },
+    onMutate: async (newEdit) => {
+      await queryClient.cancelQueries({ queryKey: ['messages', chatId] });
+      const previousData = queryClient.getQueryData(['messages', chatId]);
+
+      queryClient.setQueryData(['messages', chatId], (old: any) => {
+        if (!old) return old;
+        return {
+          ...old,
+          pages: old.pages.map((page: any) =>
+            page.map((msg: any) =>
+              msg.id === newEdit.messageId ? { ...msg, content: newEdit.content, updated_at: new Date().toISOString() } : msg
+            )
+          ),
+        };
+      });
+
+      return { previousData };
+    },
+    onError: (error: any, _, context) => {
+      if (context?.previousData) {
+        queryClient.setQueryData(['messages', chatId], context.previousData);
+      }
+      toast.error(`Помилка редагування: ${error.message}`);
+    },
+    onSuccess: () => {
+      toast.success('Повідомлення відредаговано');
+    },
+  });
 }
 
 // 5. Відправка повідомлення

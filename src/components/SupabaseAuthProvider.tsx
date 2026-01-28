@@ -1,19 +1,19 @@
 'use client';
 
-import type { User } from '@supabase/supabase-js';
+import type { User, AuthChangeEvent, Session } from '@supabase/supabase-js';
 import { createContext, useContext, useEffect, useState } from 'react';
 import { useGlobalRealtime } from '@/hooks/useGlobalRealtime';
-import { createClient } from '@/lib/supabase/client';
-
-// Виносимо за межі, щоб не створювати новий екземпляр при кожному рендері
-const supabase = createClient();
+import { supabase } from '@/lib/supabase/client';
 
 interface SupabaseAuthContextType {
   user: User | null;
   loading: boolean;
 }
 
-const SupabaseAuthContext = createContext<SupabaseAuthContextType>({ user: null, loading: true });
+const SupabaseAuthContext = createContext<SupabaseAuthContextType>({ 
+  user: null, 
+  loading: true 
+});
 
 export const useSupabaseAuth = () => useContext(SupabaseAuthContext);
 
@@ -21,27 +21,27 @@ export function SupabaseAuthProvider({ children }: { children: React.ReactNode }
   const [user, setUser] = useState<User | null>(null);
   const [loading, setLoading] = useState(true);
 
-  // Ініціалізуємо глобальний Realtime (він тепер стабільний завдяки Singleton supabase)
-  useGlobalRealtime();
+  // Ініціалізуємо реалтайм
+  useGlobalRealtime(user);
 
   useEffect(() => {
-    // Отримуємо поточну сесію відразу
-    supabase.auth.getSession().then(({ data: { session } }) => {
+    // Типізуємо отримання сесії
+    supabase.auth.getSession().then(({ data: { session } }: { data: { session: Session | null } }) => {
       setUser(session?.user ?? null);
       setLoading(false);
     });
 
-    const {
-      data: { subscription },
-    } = supabase.auth.onAuthStateChange((_event, session) => {
-      setUser(session?.user ?? null);
-      setLoading(false);
-    });
+    const { data: { subscription } } = supabase.auth.onAuthStateChange(
+      (_event: AuthChangeEvent, session: Session | null) => {
+        setUser(session?.user ?? null);
+        setLoading(false);
+      }
+    );
 
     return () => {
       subscription.unsubscribe();
     };
-  }, []); // Залежність supabase видалена, бо це Singleton
+  }, []);
 
   return (
     <SupabaseAuthContext.Provider value={{ user, loading }}>

@@ -55,6 +55,7 @@ const { isTyping: typingUsers, setTyping } = useChatTyping(id);
   );
 
   const [replyingTo, setReplyingTo] = useState<Message | null>(null);
+  const [editingMessage, setEditingMessage] = useState<Message | null>(null);
   const [messageToDelete, setMessageToDelete] = useState<string | null>(null);
   const [showScrollButton, setShowScrollButton] = useState(false);
 
@@ -168,6 +169,7 @@ const { isTyping: typingUsers, setTyping } = useChatTyping(id);
                   message={message}
                   currentUserId={user?.id}
                   onReply={handleReply}
+                  onEdit={setEditingMessage}
                   onDelete={setMessageToDelete}
                   onScrollToMessage={scrollToMessage}
                   isHighlighed={highlightedId === message.id}
@@ -222,6 +224,8 @@ const { isTyping: typingUsers, setTyping } = useChatTyping(id);
             setTyping={setTyping}
             replyToId={replyingTo?.id}
             onReplyCancel={() => setReplyingTo(null)}
+            editingMessage={editingMessage}
+            onEditCancel={() => setEditingMessage(null)}
             onMessageSent={() => {
               setTimeout(() => {
                 virtuosoRef.current?.scrollToIndex({

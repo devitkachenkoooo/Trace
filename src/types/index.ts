@@ -28,6 +28,8 @@ export interface Message {
   attachments: Attachment[];
   isRead: boolean;
   createdAt: Date;
+  updated_at?: string | null;
+  sender_id?: string; // For compatibility
   replyToId?: string | null;
   replyDetails?: {
     id: string;

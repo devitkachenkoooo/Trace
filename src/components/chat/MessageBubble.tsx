@@ -19,6 +19,7 @@ interface MessageBubbleProps {
   message: Message;
   currentUserId: string | undefined;
   onReply: (message: Message) => void;
+  onEdit: (message: Message) => void;
   onDelete: (messageId: string) => void;
   onScrollToMessage: (messageId: string) => void;
   isHighlighed?: boolean;
@@ -29,6 +30,7 @@ export function MessageBubble({
   message,
   currentUserId,
   onReply,
+  onEdit,
   onDelete,
   onScrollToMessage,
   isHighlighed,
@@ -150,6 +152,10 @@ export function MessageBubble({
                 <span className="text-[9px] font-medium">
                   {formatMessageDate(message.createdAt)}
                 </span>
+                {message.updated_at && 
+                 new Date(message.updated_at).getTime() - new Date(message.createdAt).getTime() > 1000 && (
+                  <span className="text-[9px] italic opacity-70">(відредаговано)</span>
+                )}
                 {isMe && (
                   <span className="text-[9px] font-bold">{message.isRead ? '••' : '•'}</span>
                 )}
@@ -165,6 +171,12 @@ export function MessageBubble({
           {isMe && (
             <>
               <ContextMenuSeparator />
+              <ContextMenuItem
+                onClick={() => onEdit(message)}
+                className="gap-2"
+              >
+                <Clock className="w-4 h-4" /> Edit Message
+              </ContextMenuItem>
               <ContextMenuItem
                 onClick={() => onDelete(message.id)}
                 className="gap-2 text-red-400 focus:text-red-400 focus:bg-red-500/10"
