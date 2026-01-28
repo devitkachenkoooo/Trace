@@ -32,8 +32,8 @@ export function useChats() {
           *,
           user:user_id(*),      
           recipient:recipient_id(*),
-          userLastRead:user_last_read_id(id, created_at),
-          recipientLastRead:recipient_last_read_id(id, created_at),
+          userLastRead:user_last_read_id(id, createdAt:created_at),
+          recipientLastRead:recipient_last_read_id(id, createdAt:created_at),
           messages!messages_chat_id_chats_id_fk(
             id, 
             content, 
@@ -44,14 +44,22 @@ export function useChats() {
           )
         `)
         .or(`user_id.eq.${user.id},recipient_id.eq.${user.id}`)
-        .order('created_at', { ascending: false });
+        .order('created_at', { foreignTable: 'messages', ascending: false })
+        .limit(1, { foreignTable: 'messages' });
 
       if (error) {
         console.error('Помилка запиту чатів:', error.message);
         throw error;
       }
 
-      return normalizePayload(data) as FullChat[];
+      const normalizedChats = normalizePayload(data) as FullChat[];
+      
+      // Сортуємо за датою останнього повідомлення (Bubble to top)
+      return normalizedChats.sort((a, b) => {
+        const dateA = a.messages?.[0]?.createdAt || a.createdAt;
+        const dateB = b.messages?.[0]?.createdAt || b.createdAt;
+        return new Date(dateB).getTime() - new Date(dateA).getTime();
+      });
     },
     enabled: !!user,
   });
@@ -401,6 +409,21 @@ export function useSendMessage(chatId: string) {
         newPages[lastPageIdx] = [...newPages[lastPageIdx], optimisticMessage];
   
         return { ...old, pages: newPages };
+      });
+
+      // --- ОПТИМІСТИЧНЕ ОНОВЛЕННЯ СПИСКУ ЧАТІВ (Bubble to top) ---
+      queryClient.setQueryData(['chats'], (old: any) => {
+        if (!old) return old;
+        const chatIndex = old.findIndex((c: any) => c.id === chatId);
+        if (chatIndex === -1) return old;
+
+        const updatedChat = {
+          ...old[chatIndex],
+          messages: [optimisticMessage], // Оновлюємо прев'ю
+        };
+
+        const otherChats = old.filter((c: any) => c.id !== chatId);
+        return [updatedChat, ...otherChats]; // Ставимо на початок
       });
 
       return { previousData };

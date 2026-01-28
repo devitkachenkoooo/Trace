@@ -42,9 +42,12 @@ export default function ChatList() {
           const chatDisplayTitle = partner?.name || chat.title || 'Користувач Trace';
           const partnerImage = partner?.image;
 
-          const lastMessage = chat.messages[0];
-          const isUnread =
-            lastMessage && !lastMessage.isRead && lastMessage.senderId !== currentUserId;
+          const lastMessage = chat.messages?.[0];
+          
+          const userLastReadAt = chat.userLastRead?.createdAt;
+          const isUnread = lastMessage && 
+                          lastMessage.senderId !== currentUserId && 
+                          (!userLastReadAt || new Date(lastMessage.createdAt) > new Date(userLastReadAt));
 
           return (
             <ContextMenu key={chat.id}>
