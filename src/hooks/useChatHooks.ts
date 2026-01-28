@@ -2,7 +2,6 @@
 
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { 
-  type InfiniteData, 
   useInfiniteQuery, 
   useMutation, 
   useQuery, 
@@ -47,12 +46,11 @@ export function useChats() {
         .order('created_at', { ascending: false });
 
       if (error) {
-        console.error("Помилка запиту чатів:", error.message);
+        console.error('Помилка запиту чатів:', error.message);
         throw error;
       }
 
-      // Використовуємо 'as unknown as FullChat[]', щоб прибрати помилку Conversion
-      return data as unknown as FullChat[];
+      return normalizePayload(data) as FullChat[];
     },
     enabled: !!user,
   });
@@ -106,8 +104,8 @@ export function useChatDetails(chatId: string) {
 
       // Normalize participants for the UI
       const participants = [data.participants, data.recipient].filter(Boolean) as User[];
-      
-      return { ...data, participants } as FullChat;
+
+      return normalizePayload({ ...data, participants }) as FullChat;
     },
     enabled: !!chatId && !!user,
   });
@@ -209,11 +207,11 @@ export function useSearchUsers(queryText: string) {
       const { data, error } = await query;
 
       if (error) {
-        console.error("Помилка useSearchUsers:", error.message);
+        console.error('Помилка useSearchUsers:', error.message);
         throw error;
       }
 
-      return data as User[];
+      return normalizePayload(data) as User[];
     },
     // Запит спрацює тільки коли є юзер і або порожній рядок, або > 1 символа
     enabled: !!currentUser?.id && (queryText.trim().length === 0 || queryText.trim().length > 1),
@@ -532,16 +530,13 @@ export function useUpdateLastSeen() {
     mutationFn: async () => {
       if (!user) return;
 
-      const { error } = await supabase
-        .from('user') // ТЕПЕР В ОДНИНІ, як у схемі
-        .update({ lastSeen: new Date().toISOString() })
-        .eq('id', user.id);
+      const { error } = await supabase.rpc('update_last_seen');
 
       if (error) throw error;
     },
     onError: (error: Error) => {
       console.error('Помилка оновлення статусу присутності:', error);
-    }
+    },
   });
 }
 

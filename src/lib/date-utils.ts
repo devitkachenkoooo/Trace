@@ -20,18 +20,22 @@ export function formatMessageDate(date: any) {
 }
 
 /**
- * Для списку чатів у сайдбарі (відносний час)
+ * відносний час
  */
 export function formatRelativeTime(date: any) {
   if (!date) return '';
   try {
-    const d = new Date(date);
+    // Якщо дата приходить як рядок і не містить інфо про пояс, додаємо 'Z' (UTC)
+    const dateString = typeof date === 'string' && !date.includes('Z') && !date.includes('+') 
+      ? `${date.replace(' ', 'T')}Z` 
+      : date;
+
+    const d = new Date(dateString);
     if (isNaN(d.getTime())) return '';
 
     if (isToday(d)) return format(d, 'HH:mm');
     if (isYesterday(d)) return 'Вчора';
     
-    // Якщо старіше за вчора — просто дата
     return format(d, 'dd.MM.yy');
   } catch (err) {
     return '';

@@ -5,6 +5,7 @@ import Image from 'next/image';
 import { useTransition } from 'react';
 import { getOrCreateChatAction } from '@/actions/chat-actions';
 import { usePresence, useSearchUsers } from '@/hooks/useChatHooks';
+import { formatRelativeTime } from '@/lib/date-utils';
 
 interface ContactsListProps {
   query: string;
@@ -83,7 +84,19 @@ export default function ContactsList({ query }: ContactsListProps) {
               <p className="text-sm font-medium text-gray-200 truncate group-hover:text-white transition-colors">
                 {user.name || 'Анонім'}
               </p>
-              <p className="text-[10px] text-gray-500 truncate lowercase">{user.email}</p>
+              <div className="flex items-center gap-2">
+                <p className="text-[10px] text-gray-500 truncate lowercase">
+                  {user.email}
+                </p>
+                {!isOnline && user.lastSeen && (
+                  <>
+                    <span className="text-[10px] text-gray-600">•</span>
+                    <p className="text-[10px] text-gray-500">
+                      {formatRelativeTime(user.lastSeen)}
+                    </p>
+                  </>
+                )}
+              </div>
             </div>
 
             <button

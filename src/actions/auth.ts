@@ -18,6 +18,14 @@ export async function handleSignIn() {
 
 export async function handleSignOut() {
   const supabase = createClient();
+
+  // Оновлюємо статус перед виходом
+  try {
+    await supabase.rpc('update_last_seen');
+  } catch (e) {
+    console.error('Failed to update last seen on sign out', e);
+  }
+
   const { error } = await supabase.auth.signOut();
 
   if (error) {

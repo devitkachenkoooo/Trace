@@ -18,8 +18,29 @@ export function useGlobalRealtime(user: User | null) {
       config: { presence: { key: userId } },
     });
 
+    const updateLastSeen = async () => {
+      await supabase.rpc('update_last_seen');
+    };
+
+    // --- ДОДАЄМО HEARTBEAT ТУТ ---
+    const heartbeatInterval = setInterval(() => {
+      if (document.visibilityState === 'visible') {
+        updateLastSeen();
+        console.log('💓 Heartbeat: status updated');
+      }
+    }, 1000 * 60 * 5); // 5 хвилин
+    // ----------------------------
+
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'hidden') {
+        updateLastSeen();
+      }
+    };
+
+    window.addEventListener('visibilitychange', handleVisibilityChange);
+    window.addEventListener('beforeunload', updateLastSeen);
+
     channel
-      // 1. Presence (Online Status)
       .on('presence', { event: 'sync' }, () => {
         const state = channel.presenceState();
         const onlineIds = new Set<string>();
@@ -28,51 +49,53 @@ export function useGlobalRealtime(user: User | null) {
         }
         setOnlineUsers(onlineIds);
       })
-      // 2. Profiles (Contacts) updates
       .on(
         'postgres_changes',
         { event: '*', schema: 'public', table: 'user' },
         () => {
-          console.log('👥 [Signal] Profile update. Invalidating contacts...');
-          queryClient.invalidateQueries({ 
-            queryKey: ['contacts'], 
-            exact: false 
+          queryClient.invalidateQueries({
+            queryKey: ['contacts'],
+            exact: false,
           });
-        }
+        },
       )
-      // 3. New chats signal
       .on(
         'postgres_changes',
         { event: 'INSERT', schema: 'public', table: 'chats' },
         () => {
-          console.log('🚨 [Signal] New chat detected. Triggering list refresh...');
-          queryClient.invalidateQueries({ 
-            queryKey: ['chats'], 
-            exact: false 
+          queryClient.invalidateQueries({
+            queryKey: ['chats'],
+            exact: false,
           });
-        }
+        },
       )
-      // 4. Messages signal (handles new messages & status updates)
       .on(
         'postgres_changes',
         { event: '*', schema: 'public', table: 'messages' },
         () => {
-          console.log('📩 [Signal] Message change. Refreshing chats & messages...');
-          // Invalidate both chats (re-order list) and messages (new content/read status)
           queryClient.invalidateQueries({ queryKey: ['chats'], exact: false });
           queryClient.invalidateQueries({ queryKey: ['messages'], exact: false });
-        }
+        },
       )
       .subscribe(async (status: string) => {
         if (status === 'SUBSCRIBED') {
-          await channel.track({ 
-            user_id: userId, 
-            online_at: new Date().toISOString() 
+          await channel.track({
+            user_id: userId,
+            online_at: new Date().toISOString(),
           });
+        }
+        
+        if (status === 'CLOSED' || status === 'CHANNEL_ERROR' || status === 'TIMED_OUT') {
+           updateLastSeen();
         }
       });
 
     return () => {
+      // ОБОВ'ЯЗКОВО ОЧИЩУЄМО ІНТЕРВАЛ
+      clearInterval(heartbeatInterval); 
+      updateLastSeen();
+      window.removeEventListener('visibilitychange', handleVisibilityChange);
+      window.removeEventListener('beforeunload', updateLastSeen);
       supabase.removeChannel(channel);
     };
   }, [user?.id, queryClient, setOnlineUsers]);
