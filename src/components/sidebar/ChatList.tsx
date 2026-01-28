@@ -13,13 +13,14 @@ import {
   ContextMenuSeparator,
   ContextMenuTrigger,
 } from '@/components/ui/context-menu';
-import { useChats, useDeleteChat } from '@/hooks/useChatHooks';
+import { useChats, useDeleteChat, usePresence } from '@/hooks/useChatHooks';
 import { formatRelativeTime } from '@/lib/date-utils';
 
 export default function ChatList() {
   const { data: chats, isLoading } = useChats();
   const { user } = useSupabaseAuth();
   const deleteChat = useDeleteChat();
+  const { onlineUsers } = usePresence();
   const [chatToDelete, setChatToDelete] = useState<string | null>(null);
 
   const currentUserId = user?.id;
@@ -53,18 +54,23 @@ export default function ChatList() {
                   onClick={handleChatClick}
                   className="flex items-center gap-3 px-3 py-3 rounded-xl hover:bg-white/5 transition-all border border-transparent hover:border-white/5 group"
                 >
-                  <div className="w-10 h-10 rounded-full bg-gradient-to-br from-white/10 to-transparent flex items-center justify-center border border-white/10 shrink-0 overflow-hidden">
-                    {partnerImage ? (
-                      <div className="relative w-full h-full">
-                        <Image
-                          src={partnerImage}
-                          alt={chatDisplayTitle}
-                          fill
-                          className="object-cover"
-                        />
-                      </div>
-                    ) : (
-                      <User className="w-5 h-5 text-gray-400 group-hover:text-white transition-colors" />
+                  <div className="relative shrink-0">
+                    <div className="w-10 h-10 rounded-full bg-gradient-to-br from-white/10 to-transparent flex items-center justify-center border border-white/10 overflow-hidden">
+                      {partnerImage ? (
+                        <div className="relative w-full h-full">
+                          <Image
+                            src={partnerImage}
+                            alt={chatDisplayTitle}
+                            fill
+                            className="object-cover"
+                          />
+                        </div>
+                      ) : (
+                        <User className="w-5 h-5 text-gray-400 group-hover:text-white transition-colors" />
+                      )}
+                    </div>
+                    {partner?.id && onlineUsers.has(partner.id) && (
+                      <div className="absolute bottom-0 right-0 w-2.5 h-2.5 bg-green-500 rounded-full border-2 border-black shadow-[0_0_8px_rgba(34,197,94,0.5)]" />
                     )}
                   </div>
 

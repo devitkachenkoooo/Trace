@@ -9,7 +9,6 @@ import {
   useQueryClient 
 } from '@tanstack/react-query';
 import { toast } from 'sonner';
-import { camelizeKeys } from 'humps';
 import { useRouter } from 'next/navigation';
 
 // Залишаємо тільки ОДИН варіант авторизації та клієнта
@@ -116,7 +115,6 @@ export function useChatDetails(chatId: string) {
 
 export function useMessages(chatId: string) {
   const { user } = useSupabaseAuth();
-  const queryClient = useQueryClient();
   const markAsReadMutation = useMarkAsRead();
   const lastProcessedId = useRef<string | null>(null);
 
@@ -156,83 +154,6 @@ export function useMessages(chatId: string) {
     refetchOnWindowFocus: false,
   });
 
-  // --- REAL-TIME ЛОГІКА ---
-  useEffect(() => {
-    if (!chatId) return;
-
-    const channel = supabase
-      .channel(`chat_realtime:${chatId}`)
-      .on(
-        'postgres_changes',
-        {
-          event: '*',
-          schema: 'public',
-          table: 'messages',
-          filter: `chat_id=eq.${chatId}`,
-        },
-        (payload: any) => {
-          // 1. ВИДАЛЕННЯ
-          if (payload.eventType === 'DELETE') {
-            const deletedId = payload.old?.id;
-            if (deletedId) {
-              queryClient.setQueryData(['messages', chatId], (old: any) => {
-                if (!old) return old;
-                return {
-                  ...old,
-                  pages: old.pages.map((page: any) =>
-                    page.filter((msg: any) => msg.id !== deletedId)
-                  ),
-                };
-              });
-            }
-          }
-
-          // 2. НОВЕ ПОВІДОМЛЕННЯ
-          if (payload.eventType === 'INSERT') {
-            const newMessage = normalizePayload<Message>(payload.new);
-
-            queryClient.setQueryData(['messages', chatId], (old: any) => {
-              if (!old) return old;
-
-              // Перевірка на дублікати (щоб не було копій від оптимістичного оновлення)
-              const exists = old.pages.some((page: any) =>
-                page.some((m: any) => m.id === newMessage.id)
-              );
-              if (exists) return old;
-
-              const newPages = [...old.pages];
-              const lastIdx = newPages.length - 1;
-              newPages[lastIdx] = [...newPages[lastIdx], newMessage];
-
-              return { ...old, pages: newPages };
-            });
-          }
-
-          // 3. РЕДАГУВАННЯ
-          if (payload.eventType === 'UPDATE') {
-            const updatedMessage = normalizePayload<Message>(payload.new);
-
-            queryClient.setQueryData(['messages', chatId], (old: any) => {
-              if (!old) return old;
-              return {
-                ...old,
-                pages: old.pages.map((page: any) =>
-                  page.map((msg: any) =>
-                    msg.id === updatedMessage.id ? { ...msg, ...updatedMessage } : msg
-                  )
-                ),
-              };
-            });
-          }
-        }
-      )
-      .subscribe();
-
-    return () => {
-      supabase.removeChannel(channel);
-    };
-  }, [chatId, queryClient]);
-
   // --- АВТОМАТИЧНЕ ПРОЧИТАННЯ ---
   const pages = query.data?.pages || [];
   const allMessages = pages.flat();
@@ -264,7 +185,7 @@ export function useSearchUsers(queryText: string) {
   const { user: currentUser } = useSupabaseAuth();
 
   return useQuery({
-    queryKey: ['users-search', queryText, currentUser?.id],
+    queryKey: ['contacts', queryText, currentUser?.id],
     queryFn: async () => {
       // 1. Захист від undefined UUID
       if (!currentUser?.id) return [];
