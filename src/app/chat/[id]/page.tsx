@@ -74,7 +74,22 @@ const { isTyping: typingUsers, setTyping } = useChatTyping(id);
 
 
   const handleReply = (message: Message) => {
+    setEditingMessage(null); // Додаємо цей рядок: скидаємо редагування при реплаї
     setReplyingTo(message);
+    
+    setTimeout(() => {
+      virtuosoRef.current?.scrollToIndex({
+        index: messages.length - 1,
+        behavior: 'smooth',
+      });
+    }, 100);
+  };
+
+  const handleEdit = (message: Message) => {
+    setReplyingTo(null); // Скидаємо реплай (ЦЕ ТЕ, ЧОГО НЕ ВИСТАЧАЛО)
+    setEditingMessage(message);
+    
+    // Скролимо до інпуту, щоб користувач бачив, що режим змінився
     setTimeout(() => {
       virtuosoRef.current?.scrollToIndex({
         index: messages.length - 1,
@@ -169,7 +184,7 @@ const { isTyping: typingUsers, setTyping } = useChatTyping(id);
                   message={message}
                   currentUserId={user?.id}
                   onReply={handleReply}
-                  onEdit={setEditingMessage}
+                  onEdit={handleEdit}
                   onDelete={setMessageToDelete}
                   onScrollToMessage={scrollToMessage}
                   isHighlighed={highlightedId === message.id}
