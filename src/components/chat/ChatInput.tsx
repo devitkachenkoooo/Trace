@@ -38,6 +38,7 @@ export default function ChatInput({
   // Автоматична висота textarea
   useEffect(() => {
     const textarea = textareaRef.current;
+    content
     if (textarea) {
       textarea.style.height = 'inherit';
       const scrollHeight = textarea.scrollHeight;

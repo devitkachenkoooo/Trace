@@ -59,10 +59,17 @@ const { isTyping: typingUsers, setTyping } = useChatTyping(id);
   const [showScrollButton, setShowScrollButton] = useState(false);
 
   useEffect(() => {
-    if (!isChatLoading && (!chat || isError)) {
-      router.replace('/');
-    }
-  }, [isChatLoading, chat, isError, router]);
+  // Додаємо додаткову перевірку: якщо завантаження реально завершено
+  // і ми впевнені, що об'єкта chat немає, тільки тоді редірект
+  if (!isChatLoading && isError) {
+    router.replace('/');
+  }
+  
+  // Якщо чат завантажився, але він порожній — це теж ознака помилки
+  if (!isChatLoading && !chat && !isMessagesLoading) {
+     router.replace('/');
+  }
+}, [isChatLoading, chat, isError, router, isMessagesLoading]);
 
 
   const handleReply = (message: Message) => {

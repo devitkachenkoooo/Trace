@@ -35,12 +35,12 @@ export function useChats() {
           *,
           user:user_id(*),      
           recipient:recipient_id(*),
-          messages(
+          messages!messages_chat_id_chats_id_fk(
             id, 
             content, 
             createdAt:created_at, 
             senderId:sender_id, 
-            chatId:chat_id, 
+            chat_id:chat_id, 
             isRead:is_read, 
             attachments
           )
@@ -53,7 +53,8 @@ export function useChats() {
         throw error;
       }
 
-      return data as FullChat[];
+      // Використовуємо 'as unknown as FullChat[]', щоб прибрати помилку Conversion
+      return data as unknown as FullChat[];
     },
     enabled: !!user,
   });
@@ -116,7 +117,7 @@ export function useChatDetails(chatId: string) {
 
 export function useMessages(chatId: string) {
   const { user } = useSupabaseAuth();
-  // Викликаємо мутацію (переконайся, що назва збігається з експортованою функцією в цьому файлі)
+  const queryClient = useQueryClient();
   const markAsReadMutation = useMarkAsRead(); 
   const lastProcessedId = useRef<string | null>(null);
 
@@ -136,8 +137,6 @@ export function useMessages(chatId: string) {
       return (data || []).reverse();
     },
     initialPageParam: undefined as string | undefined,
-    // Ми використовуємо getPreviousPageParam, щоб старіші повідомлення додавалися в ПОЧАТОК масиву pages.
-    // Таким чином flat() завжди буде [Older...Newest].
     getPreviousPageParam: (firstPage) => {
       if (!firstPage || firstPage.length < 50) return undefined;
       return firstPage[0].created_at;
@@ -147,31 +146,87 @@ export function useMessages(chatId: string) {
     refetchOnWindowFocus: false,
   });
 
+  useEffect(() => {
+    if (!chatId) return;
+
+    const channel = supabase
+      .channel(`chat_realtime:${chatId}`)
+      .on(
+        'postgres_changes',
+        {
+          event: '*', 
+          schema: 'public',
+          table: 'messages',
+          filter: `chat_id=eq.${chatId}`,
+        },
+        (payload) => {
+          // --- ОБРОБКА ВИДАЛЕННЯ (від іншого юзера) ---
+          if (payload.eventType === 'DELETE') {
+            const deletedId = payload.old?.id;
+            
+            if (deletedId) {
+              queryClient.setQueryData(['messages', chatId], (old: any) => {
+                if (!old) return old;
+                return {
+                  ...old,
+                  pages: old.pages.map((page: any) =>
+                    page.filter((msg: any) => msg.id !== deletedId)
+                  ),
+                };
+              });
+            }
+          }
+
+          // --- ОБРОБКА НОВОГО ПОВІДОМЛЕННЯ (від іншого юзера) ---
+          if (payload.eventType === 'INSERT') {
+            const newMessage = payload.new;
+
+            queryClient.setQueryData(['messages', chatId], (old: any) => {
+              if (!old) return old;
+              
+              // Якщо ми вже додали це повідомлення оптимістично — ігноруємо дубль
+              const exists = old.pages.some((page: any) => 
+                page.some((m: any) => m.id === newMessage.id)
+              );
+
+              if (exists) return old;
+
+              const newPages = [...old.pages];
+              const lastIdx = newPages.length - 1;
+              newPages[lastIdx] = [...newPages[lastIdx], newMessage];
+              
+              return { ...old, pages: newPages };
+            });
+          }
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [chatId, queryClient]);
+
+  // Логіка автоматичного прочитання
   const pages = query.data?.pages || [];
-  const latestMessage = pages.length > 0 ? pages[pages.length - 1][pages[pages.length - 1].length - 1] : null;
+  const allMessages = pages.flat();
+  const latestMessage = allMessages.length > 0 ? allMessages[allMessages.length - 1] : null;
 
   useEffect(() => {
-    // Розпаковуємо значення для чіткості, щоб Biome не плутався
     const msgId = latestMessage?.id;
-    const isRead = latestMessage?.is_read;
-    const senderId = latestMessage?.sender_id;
-    const currentUserId = user?.id;
-
-    if (
-      msgId && 
-      currentUserId && 
-      senderId !== currentUserId && 
-      !isRead && 
-      lastProcessedId.current !== msgId
-    ) {
+    const isRead = latestMessage?.is_read || (latestMessage as any)?.isRead;
+    const senderId = latestMessage?.sender_id || (latestMessage as any)?.senderId;
+    
+    // Позначаємо як прочитане тільки якщо повідомлення НЕ від нас
+    if (msgId && user?.id && senderId !== user.id && !isRead && lastProcessedId.current !== msgId) {
       lastProcessedId.current = msgId;
       markAsReadMutation.mutate(chatId);
     }
-    // Вказуємо конкретні примітиви в залежності — Biome це обожнює
-  }, [latestMessage, user, chatId, markAsReadMutation.mutate]);
+  }, [latestMessage, user?.id, chatId, markAsReadMutation]);
 
   return query;
 }
+
 // 3. Пошук (для ContactsList)
 export function useSearchUsers(queryText: string) {
   return useQuery({
@@ -271,63 +326,71 @@ export function useSendMessage(chatId: string) {
     }: { 
       content: string; 
       replyToId?: string;
-      attachments?: { id: string; type: string; url: string; metadata: any }[];
+      attachments?: any[];
     }) => {
       if (!user) throw new Error('Ви не авторизовані');
 
-      const messageId = crypto.randomUUID();
+      // 1. Вставляємо дані. 
+      // Використовуємо .select() з явним вказанням зв'язку, щоб уникнути дублів ключів
+      const { error, data } = await supabase
+        .from('messages')
+        .insert({
+          chat_id: chatId,
+          sender_id: user.id,
+          content,
+          reply_to_id: replyToId || null,
+          attachments: attachments || [],
+        })
+        .select(`
+          *,
+          replyTo:messages!reply_to_id(*)
+        `)
+        .single();
 
-      const { error } = await supabase.from('messages').insert({
-        id: messageId,
-        chat_id: chatId,
-        sender_id: user.id,
-        content,
-        reply_to_id: replyToId || null,
-        attachments: attachments || [],
-      });
-
-      if (error) throw error;
-      return { id: messageId, content, replyToId, attachments };
+      if (error) {
+        console.error("Помилка відправки:", error.message);
+        throw error;
+      }
+      return data;
     },
 
     onMutate: async (newMessage) => {
+      // Скасовуємо активні запити, щоб вони не перезаписали наш оптимістичний стейт
       await queryClient.cancelQueries({ queryKey: ['messages', chatId] });
+
+      // Зберігаємо попередні дані для відкату у разі помилки
       const previousData = queryClient.getQueryData(['messages', chatId]);
 
+      // Знаходимо повідомлення, на яке відповідаємо (для UI)
       const allMessages = (previousData as any)?.pages?.flat() || [];
       const parentMessage = newMessage.replyToId 
         ? allMessages.find((m: any) => m.id === newMessage.replyToId)
         : null;
 
+      // Створюємо "фейкове" повідомлення для миттєвого відображення
       const optimisticMessage = {
-        id: crypto.randomUUID(),
+        id: `temp-${Date.now()}`,
         content: newMessage.content,
-        senderId: user?.id, 
         sender_id: user?.id,
-        chatId: chatId,
         chat_id: chatId,
-        createdAt: new Date().toISOString(),
-        replyToId: newMessage.replyToId || null,
+        created_at: new Date().toISOString(), // для бази/сокета
+        createdAt: new Date().toISOString(),  // для твого UI-компонента
         reply_to_id: newMessage.replyToId || null,
-        replyTo: parentMessage ? {
-          id: parentMessage.id,
-          content: parentMessage.content,
-          sender: parentMessage.sender
-        } : null,
+        replyTo: parentMessage,
         attachments: newMessage.attachments || [],
         is_read: false,
+        is_optimistic: true 
       };
 
+      // Оновлюємо кеш React Query
       queryClient.setQueryData(['messages', chatId], (old: any) => {
-        if (!old || !old.pages || old.pages.length === 0) {
-          return { pages: [[optimisticMessage]], pageParams: [undefined] };
-        }
+        if (!old) return { pages: [[optimisticMessage]], pageParams: [undefined] };
         
         const newPages = [...old.pages];
-        const lastIdx = newPages.length - 1;
+        const lastPageIdx = newPages.length - 1;
         
-        // Додаємо в КІНЕЦЬ останньої сторінки (хронологічний порядок)
-        newPages[lastIdx] = [...newPages[lastIdx], optimisticMessage];
+        // Додаємо в кінець останньої сторінки
+        newPages[lastPageIdx] = [...newPages[lastPageIdx], optimisticMessage];
   
         return { ...old, pages: newPages };
       });
@@ -335,35 +398,85 @@ export function useSendMessage(chatId: string) {
       return { previousData };
     },
 
-    onError: (error: Error, newMessage, context) => {
+    onError: (error: Error, _, context) => {
+      // Якщо помилка — повертаємо старі дані
       if (context?.previousData) {
         queryClient.setQueryData(['messages', chatId], context.previousData);
       }
-      toast.error(`Помилка відправки: ${error.message}`);
+      toast.error(`Не вдалося відправити: ${error.message}`);
+    },
+
+    onSuccess: (savedMessage) => {
+      // Коли прийшла відповідь від бази, замінюємо "temp" повідомлення на реальне
+      queryClient.setQueryData(['messages', chatId], (old: any) => {
+        if (!old) return old;
+        return {
+          ...old,
+          pages: old.pages.map((page: any[]) =>
+            page.map((msg) => 
+              msg.id.toString().startsWith('temp-') && msg.content === savedMessage.content 
+                ? savedMessage 
+                : msg
+            )
+          ),
+        };
+      });
     },
 
     onSettled: () => {
-      // Важливо: не інвалідуємо відразу, якщо realtime вже вставив повідомлення,
-      // але для впевненості можна залишити.
-      queryClient.invalidateQueries({ queryKey: ['messages', chatId] });
+      // Фінальна синхронізація (опціонально)
+      // queryClient.invalidateQueries({ queryKey: ['messages', chatId] });
     }
   });
 }
 
-export function useDeleteMessage(_chatId: string) {
+export function useDeleteMessage(chatId: string) {
+  const queryClient = useQueryClient();
 
   return useMutation({
     mutationFn: async (messageId: string) => {
-      const { error } = await supabase.from('messages').delete().eq('id', messageId);
+      const { data, error } = await supabase
+        .from('messages')
+        .delete()
+        .eq('id', messageId)
+        .select(); 
+
       if (error) throw error;
+      if (!data || data.length === 0) {
+        throw new Error('Немає прав на видалення або повідомлення вже видалено');
+      }
+      return data;
+    },
+    // Чітко вказуємо, що чекаємо string
+    onMutate: async (messageId: string) => {
+      await queryClient.cancelQueries({ queryKey: ['messages', chatId] });
+
+      const previousData = queryClient.getQueryData(['messages', chatId]);
+
+      queryClient.setQueryData(['messages', chatId], (old: any) => {
+        if (!old) return old;
+        return {
+          ...old,
+          pages: old.pages.map((page: any) =>
+            // Використовуємо messageId з аргументів мутації
+            page.filter((msg: any) => msg.id !== messageId)
+          ),
+        };
+      });
+
+      return { previousData };
+    },
+    onError: (error: any, messageId, context) => {
+      if (context?.previousData) {
+        queryClient.setQueryData(['messages', chatId], context.previousData);
+      }
+      toast.error('Помилка видалення', {
+        description: error.message,
+      });
     },
     onSuccess: () => {
-      // Real-time listener handles cache updates
       toast.success('Повідомлення видалено');
     },
-    onError: (error: Error) => {
-      toast.error(`Не вдалося видалити повідомлення: ${error.message}`);
-    }
   });
 }
 
