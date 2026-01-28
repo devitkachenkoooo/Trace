@@ -264,31 +264,41 @@ export function useMessages(chatId: string) {
 
 // 3. Пошук (для ContactsList)
 export function useSearchUsers(queryText: string) {
+  const { user: currentUser } = useSupabaseAuth();
+
   return useQuery({
-    queryKey: ['users-search', queryText],
+    queryKey: ['users-search', queryText, currentUser?.id],
     queryFn: async () => {
-      if (!queryText.trim()) return [];
+      // 1. Захист від undefined UUID
+      if (!currentUser?.id) return [];
 
-      // Отримуємо поточного юзера, щоб виключити його з пошуку
-      const { data: { user: currentUser } } = await supabase.auth.getUser();
-
-      const { data, error } = await supabase
+      let query = supabase
         .from('user')
-        .select('id, name, email, image')
-        // Шукаємо або по імені, або по email
-        .or(`name.ilike.%${queryText}%,email.ilike.%${queryText}%`)
-        // Виключаємо себе з результатів
-        .neq('id', currentUser?.id)
-        .limit(10);
+        .select('id, name, email, image, last_seen') // Вибираємо тільки ті поля, що існують
+        .neq('id', currentUser.id);
+
+      if (queryText.trim().length > 1) {
+        // Пошук за ім'ям або поштою
+        query = query.or(`name.ilike.%${queryText}%,email.ilike.%${queryText}%`).limit(10);
+      } else if (!queryText.trim()) {
+        // Task 2: 20 юзерів, які заходили нещодавно (сортуємо за last_seen)
+        // Якщо в базі поле зветься last_seen — використовуємо його
+        query = query.order('last_seen', { ascending: false, nullsFirst: false }).limit(20);
+      } else {
+        return [];
+      }
+
+      const { data, error } = await query;
 
       if (error) {
-        console.error("Помилка пошуку користувачів:", error.message);
+        console.error("Помилка useSearchUsers:", error.message);
         throw error;
       }
 
-      return data;
+      return data as User[];
     },
-    enabled: queryText.trim().length > 1,
+    // Запит спрацює тільки коли є юзер і або порожній рядок, або > 1 символа
+    enabled: !!currentUser?.id && (queryText.trim().length === 0 || queryText.trim().length > 1),
   });
 }
 

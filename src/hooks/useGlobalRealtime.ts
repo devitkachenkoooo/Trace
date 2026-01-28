@@ -6,7 +6,7 @@ import { useEffect, useRef } from 'react';
 import { useSupabaseAuth } from '@/components/SupabaseAuthProvider';
 import { createClient } from '@/lib/supabase/client';
 import { usePresenceStore } from '@/store/usePresenceStore';
-import type { FullChat, Message } from '@/types';
+import type { FullChat, Message, User } from '@/types';
 
 // Singleton Supabase client
 const supabase = createClient();
@@ -62,7 +62,7 @@ export function useGlobalRealtime() {
         }
       });
 
-    // --- 2. Global Messages Channel (Optimistic Updates) ---
+    // --- 2. Global Messages Channel (Optimistic Updates & Sidebar) ---
     const messagesChannel = supabase
       .channel(`global-messages-${userId}`)
       .on(
@@ -78,13 +78,38 @@ export function useGlobalRealtime() {
           const messageId = rawMessage.id;
 
           if (payload.eventType === 'INSERT') {
-            // 1. Update Chat List (Move to top)
-            queryClient.setQueryData<FullChat[]>(['chats'], (oldChats) => {
-              if (!oldChats) return oldChats;
-              const chatIndex = oldChats.findIndex((c) => c.id === chatId);
-              if (chatIndex === -1) return oldChats;
+            const newMessage = {
+              id: rawMessage.id,
+              content: rawMessage.content,
+              createdAt: rawMessage.created_at,
+              senderId: rawMessage.sender_id,
+              chat_id: rawMessage.chat_id,
+              isRead: rawMessage.is_read ?? false,
+              attachments: rawMessage.attachments || []
+            };
 
-              const updatedChat = { ...oldChats[chatIndex] };
+            // 1. Update Chat List (Move to top, update last message and unread count)
+            queryClient.setQueryData<FullChat[]>(['chats'], (oldChats) => {
+              if (!oldChats) {
+                // If we don't have chats in cache, it's better to refetch
+                queryClient.invalidateQueries({ queryKey: ['chats'] });
+                return oldChats;
+              }
+
+              const chatIndex = oldChats.findIndex((c) => c.id === chatId);
+              
+              if (chatIndex === -1) {
+                // Chat not in list, refetch entire list to get the new chat object
+                queryClient.invalidateQueries({ queryKey: ['chats'] });
+                return oldChats;
+              }
+
+              const chat = oldChats[chatIndex];
+              const updatedChat: FullChat = {
+                ...chat,
+                messages: [newMessage as any], // Use new message as the "last" one
+              };
+
               const newChats = [...oldChats];
               newChats.splice(chatIndex, 1);
               newChats.unshift(updatedChat);
@@ -114,7 +139,6 @@ export function useGlobalRealtime() {
 
                 const newPages = [...oldData.pages];
                 const lastIdx = newPages.length - 1;
-                // Додаємо в КІНЕЦЬ останньої сторінки (хронологічний порядок)
                 newPages[lastIdx] = [...newPages[lastIdx], normalizedMsg];
                 
                 return { ...oldData, pages: newPages };
@@ -130,13 +154,21 @@ export function useGlobalRealtime() {
               };
             });
 
-            // Update Chat List (Remove)
-            queryClient.setQueryData<FullChat[]>(['chats'], (oldChats) => {
-              if (!oldChats) return oldChats;
-              return oldChats.filter(c => c.id !== chatId);
-            });
+            // Update Chat List (Remove if it was the last message, or just refetch)
+            queryClient.invalidateQueries({ queryKey: ['chats'] });
           } else if (payload.eventType === 'UPDATE') {
              // Handle isRead updates or content edits
+             const updatedMessage = {
+               id: rawMessage.id,
+               content: rawMessage.content,
+               createdAt: rawMessage.created_at,
+               senderId: rawMessage.sender_id,
+               chat_id: rawMessage.chat_id,
+               is_read: rawMessage.is_read, // use snake_case for consistency with local state if needed
+               isRead: rawMessage.is_read,
+               attachments: rawMessage.attachments || []
+             };
+
              queryClient.setQueryData<InfiniteData<Message[]>>(['messages', chatId], (oldData) => {
                if (!oldData) return oldData;
                return {
@@ -154,13 +186,15 @@ export function useGlobalRealtime() {
                };
              });
 
-             // Also update chat list if needed (e.g. unread counts if we had them)
+             // Update chat list if this was the last message
              queryClient.setQueryData<FullChat[]>(['chats'], (oldChats) => {
                if (!oldChats) return oldChats;
                return oldChats.map(chat => {
-                 if (chat.id === chatId) {
-                   // If we had a way to update the last message in the chat list object
-                   // we would do it here.
+                 if (chat.id === chatId && chat.messages?.[0]?.id === messageId) {
+                   return {
+                     ...chat,
+                     messages: [updatedMessage as any]
+                   };
                  }
                  return chat;
                });
@@ -168,14 +202,44 @@ export function useGlobalRealtime() {
           }
         }
       )
-      .subscribe((status) => {
-        console.log(`📡 [GlobalRealtime] Messaging Status: ${status}`);
-      });
+      .subscribe();
+
+    // --- 3. Global Users Channel (Contacts Updates) ---
+    const usersChannel = supabase
+      .channel('global-users')
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'user', // Table name is 'user'
+        },
+        (payload) => {
+          if (payload.eventType === 'INSERT') {
+            const newUser = payload.new as User;
+            // Add to the top of the 'users-search' cache (for empty query)
+            queryClient.setQueryData<User[]>(['users-search', ''], (oldUsers) => {
+              if (!oldUsers) return [newUser];
+              // Avoid duplicates
+              if (oldUsers.some(u => u.id === newUser.id)) return oldUsers;
+              return [newUser, ...oldUsers.slice(0, 19)]; // Keep max 20
+            });
+          } else if (payload.eventType === 'DELETE') {
+            const deletedUser = payload.old as { id: string };
+            queryClient.setQueryData<User[]>(['users-search', ''], (oldUsers) => {
+              if (!oldUsers) return oldUsers;
+              return oldUsers.filter(u => u.id !== deletedUser.id);
+            });
+          }
+        }
+      )
+      .subscribe();
 
     return () => {
       console.log(`🛑 [GlobalRealtime] Cleaning up...`);
       supabase.removeChannel(presenceChannel);
       supabase.removeChannel(messagesChannel);
+      supabase.removeChannel(usersChannel);
 
       try {
         supabase.rpc('set_user_offline').then(({ error }) => {
@@ -187,3 +251,4 @@ export function useGlobalRealtime() {
     };
   }, [user?.id, queryClient, setOnlineUsers]);
 }
+
