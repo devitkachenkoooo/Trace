@@ -60,16 +60,20 @@ export default function ChatPage({ params }: { params: Promise<{ id: string }> }
     }
   }, [isChatLoading, chat, isError, router, isMessagesLoading]);
 
-  // Хендлери для взаємодії
-  const handleReply = (message: Message) => {
+  // Interaction Handlers (Stabilized for performance)
+  const handleReply = useCallback((message: Message) => {
     setEditingMessage(null);
     setReplyingTo(message);
-  };
+  }, []);
 
-  const handleEdit = (message: Message) => {
+  const handleEdit = useCallback((message: Message) => {
     setReplyingTo(null);
     setEditingMessage(message);
-  };
+  }, []);
+
+  const handleScrollToMessage = useCallback((messageId: string) => {
+    scrollToMessage(messageId, { align: 'center' });
+  }, [scrollToMessage]);
 
   if (isChatLoading || (isMessagesLoading && !messages.length)) {
     return (
@@ -160,7 +164,7 @@ export default function ChatPage({ params }: { params: Promise<{ id: string }> }
                   onReply={handleReply}
                   onEdit={handleEdit}
                   onDelete={setMessageToDelete}
-                  onScrollToMessage={(id) => scrollToMessage(id, { align: 'center' })}
+                  onScrollToMessage={handleScrollToMessage}
                   isHighlighed={highlightedId === message.id}
                   otherParticipantName={otherParticipant?.name || undefined}
                 />
