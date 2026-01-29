@@ -44,7 +44,7 @@ export function MessageBubble({
   const isRead = isMe && recipientLastReadAt && 
     new Date(message.createdAt).getTime() <= new Date(recipientLastReadAt).getTime();
 
-  const imageAttachments = message.attachments?.filter((a) => a.type === 'image') || [];
+  const mediaAttachments = message.attachments?.filter((a) => a.type === 'image' || a.type === 'video') || [];
   const fileAttachments = message.attachments?.filter((a) => a.type === 'file') || [];
 
   return (
@@ -68,7 +68,7 @@ export function MessageBubble({
                 isMe
                   ? 'bg-blue-600 text-white rounded-2xl rounded-tr-sm'
                   : 'bg-neutral-900/80 backdrop-blur-md text-gray-100 rounded-2xl rounded-tl-sm',
-                imageAttachments.length > 0 && !message.content ? 'p-1.5 bg-neutral-900/50' : '',
+                mediaAttachments.length > 0 && !message.content ? 'p-1.5 bg-neutral-900/50' : '',
               )}
               style={{ willChange: 'transform' }}
             >
@@ -102,15 +102,17 @@ export function MessageBubble({
                       {senderName || 'Unknown'}
                     </span>
                     <span className="text-white/60 line-clamp-1 italic">
-                      {reply.content || (reply.attachments && reply.attachments.length ? '📎 Attachment' : '...')}
+                      {reply.content || (reply.attachments?.length ? '📎 Attachment' : '...')}
                     </span>
                   </button>
                 );
               })()}
 
-              {imageAttachments.length > 0 && (
+              {mediaAttachments.length > 0 && (
                 <div className="rounded-xl overflow-hidden mb-1 w-full">
-                  <MessageMediaGrid images={imageAttachments} />
+                  <MessageMediaGrid 
+                    items={mediaAttachments} 
+                  />
                 </div>
               )}
 

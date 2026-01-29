@@ -8,7 +8,7 @@ export interface User {
 
 export interface Attachment {
   id: string;
-  type: 'image' | 'file';
+  type: 'image' | 'video' | 'file';
   url: string;
   isDeleted?: boolean;
   metadata: {

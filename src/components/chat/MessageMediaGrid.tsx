@@ -1,6 +1,6 @@
 'use client';
 
-import { Clock, EyeOff } from 'lucide-react';
+import { FileX, ImageOff, PlayCircle } from 'lucide-react';
 import Image from 'next/image';
 import { useState } from 'react';
 import { cn } from '@/lib/utils';
@@ -8,134 +8,150 @@ import type { Attachment } from '@/types';
 import { ImageModal } from './ImageModal';
 
 interface MessageMediaGridProps {
-  images: Attachment[];
+  items: Attachment[];
 }
 
-// Винесено за межі основного компонента для запобігання помилкам рендеру
-const DeletedPlaceholder = ({ name }: { name: string }) => (
-  <div className="flex flex-col items-center justify-center w-full h-full bg-neutral-900/80 border border-white/5 rounded-xl p-4 text-center min-h-[150px] min-w-[200px]">
-    <div className="w-10 h-10 rounded-full bg-white/5 flex items-center justify-center mb-2">
-      <Clock className="w-5 h-5 text-white/40" />
+const MediaPlaceholder = ({ reason = 'deleted' }: { reason?: 'deleted' | 'error' }) => {
+  const Icon = reason === 'deleted' ? FileX : ImageOff;
+  return (
+    <div className="flex flex-col items-center justify-center w-full h-full bg-neutral-100 dark:bg-neutral-800 border border-neutral-200 dark:border-white/5 rounded-xl p-4 text-center min-h-[150px]">
+      <Icon className="w-5 h-5 text-neutral-500 mb-2" />
+      <p className="text-[10px] font-bold uppercase tracking-wider text-neutral-500">
+        {reason === 'deleted' ? 'Deleted' : 'Error'}
+      </p>
     </div>
-    <p className="text-[11px] text-white/40 font-medium uppercase tracking-widest">Файл видалено</p>
-    <p className="text-[10px] text-white/20 mt-1 truncate max-w-[180px]">{name}</p>
-  </div>
-);
+  );
+};
 
-export function MessageMediaGrid({ images }: MessageMediaGridProps) {
+export function MessageMediaGrid({ items }: MessageMediaGridProps) {
   const [selectedIndex, setSelectedIndex] = useState<number | null>(null);
+  const [failedUrls, setFailedUrls] = useState<Set<string>>(new Set());
 
-  const activeImages = images.filter((img) => !img.isDeleted);
-  const count = images.length;
+  if (!items || items.length === 0) return null;
 
-  if (count === 0) return null;
-
-  const handleImageClick = (index: number) => {
-    const clickedImage = images[index];
-    if (clickedImage.isDeleted) return;
-
-    const activeIndex = activeImages.findIndex((img) => img.id === clickedImage.id);
-    if (activeIndex !== -1) {
-      setSelectedIndex(activeIndex);
-    }
+  const handleImageError = (url: string) => {
+    setFailedUrls((prev) => new Set(prev).add(url));
   };
 
-  const modalElement = (
-    <ImageModal
-      isOpen={selectedIndex !== null}
-      images={activeImages}
-      initialIndex={selectedIndex ?? 0}
-      onClose={() => setSelectedIndex(null)}
-    />
-  );
+  const activeMedia = items.filter((item) => !item.isDeleted && !failedUrls.has(item.url));
+  const count = items.length;
 
-  // --- 1 КАРТИНКА: Пріоритет на якість та розмір ---
-  if (count === 1) {
-    const img = images[0];
+  const handleMediaClick = (index: number) => {
+    const clickedItem = items[index];
+    if (clickedItem.isDeleted || failedUrls.has(clickedItem.url)) return;
+    const activeIndex = activeMedia.findIndex((m) => m.id === clickedItem.id);
+    if (activeIndex !== -1) setSelectedIndex(activeIndex);
+  };
+
+  const modalImages = activeMedia.filter(item => item.type === 'image');
+
+  const renderItem = (item: Attachment, index: number, isLarge = false) => {
+    const isFailed = failedUrls.has(item.url) || item.isDeleted;
+
     return (
-      <>
-        <div className="relative group w-fit max-w-full">
-          {img.isDeleted ? (
-            <DeletedPlaceholder name={img.metadata?.name || 'image'} />
-          ) : (
-            <button
-              type="button"
-              className="relative rounded-2xl overflow-hidden border border-white/10 bg-white/5 cursor-pointer hover:opacity-95 transition-all duration-300 block w-full max-w-[400px]"
-              onClick={() => handleImageClick(0)}
-            >
+      <div 
+        key={item.id}
+        className={cn(
+          "relative overflow-hidden group bg-neutral-200 dark:bg-neutral-800",
+          isLarge ? "col-span-2 aspect-video" : "aspect-square"
+        )}
+      >
+        {isFailed ? (
+          <MediaPlaceholder reason={item.isDeleted ? 'deleted' : 'error'} />
+        ) : (
+          <button
+            type="button"
+            className="w-full h-full relative block"
+            onClick={() => handleMediaClick(index)}
+          >
+            {item.type === 'video' ? (
+              <div className="w-full h-full relative bg-black">
+                <video src={item.url} className="w-full h-full object-cover text-white">
+                  <track kind="captions" />
+                </video>
+                <div className="absolute inset-0 flex items-center justify-center bg-black/20 group-hover:bg-black/40 transition-colors">
+                  <PlayCircle className="w-10 h-10 text-white/80" />
+                </div>
+              </div>
+            ) : (
               <Image
-                src={img.url}
-                alt={img.metadata?.name || 'Media'}
-                width={800}
-                height={600}
-                className="w-full h-auto max-h-[450px] object-contain bg-neutral-900/20"
+                src={item.url}
+                alt=""
+                fill
+                className="object-cover group-hover:scale-105 transition-transform duration-500"
                 unoptimized
+                onError={() => handleImageError(item.url)}
               />
-              <div className="absolute inset-0 bg-black/0 group-hover:bg-black/5 transition-colors" />
-            </button>
-          )}
-        </div>
-        {modalElement}
-      </>
+            )}
+            {index === 3 && count > 4 && (
+              <div className="absolute inset-0 bg-black/60 flex items-center justify-center text-white z-10">
+                <span className="text-xl font-bold">+{count - 4}</span>
+              </div>
+            )}
+          </button>
+        )}
+      </div>
     );
-  }
-
-  // --- МУЛЬТИ-СІТКА (2+ картинки) ---
-  const displayImages = images.slice(0, 4);
-  const remaining = count - 4;
+  };
 
   return (
     <>
-      <div
-        className={cn(
-          'grid gap-1.5 rounded-2xl overflow-hidden border border-white/10 bg-white/5 w-full max-w-[500px]',
-          count === 2 ? 'grid-cols-2 aspect-[16/10]' : 'grid-cols-2 aspect-square',
+      <div className={cn(
+        "grid gap-1 overflow-hidden rounded-2xl w-[400px] max-w-full max-sm:w-[280px]",
+        count === 1 ? "grid-cols-1" : "grid-cols-2"
+      )}>
+        {count === 1 && (
+          <div 
+            className="relative overflow-hidden bg-neutral-200 dark:bg-neutral-800 rounded-2xl"
+            style={{ 
+              aspectRatio: items[0].metadata?.width && items[0].metadata?.height 
+                ? `${items[0].metadata.width}/${items[0].metadata.height}` 
+                : '16/10',
+              maxHeight: '500px'
+            }}
+          >
+             {items[0].isDeleted || failedUrls.has(items[0].url) ? (
+               <MediaPlaceholder reason="error" />
+             ) : (
+               <button type="button" onClick={() => handleMediaClick(0)} className="w-full h-full relative block">
+                 {items[0].type === 'video' ? (
+                    <video src={items[0].url} className="w-full h-full object-contain bg-black">
+                      <track kind="captions" />
+                    </video>
+                 ) : (
+                    <Image 
+                      src={items[0].url} 
+                      alt="" 
+                      fill 
+                      className="object-contain bg-neutral-900/10" 
+                      unoptimized 
+                      onError={() => handleImageError(items[0].url)}
+                    />
+                 )}
+               </button>
+             )}
+          </div>
         )}
-      >
-        {displayImages.map((img, i) => {
-          const isLast = i === 3;
-          const showOverlay = isLast && remaining > 0;
 
-          return (
-            <div
-              key={img.id}
-              className={cn(
-                'relative bg-neutral-800 overflow-hidden group',
-                // Якщо 3 картинки: перша займає всю верхню частину
-                count === 3 && i === 0 ? 'col-span-2 row-span-1' : '',
-              )}
-            >
-              {img.isDeleted ? (
-                <div className="w-full h-full flex items-center justify-center bg-neutral-900/50 min-h-[120px]">
-                  <EyeOff className="w-4 h-4 text-white/20" />
-                </div>
-              ) : (
-                <button
-                  type="button"
-                  className="w-full h-full relative block min-h-[120px]"
-                  onClick={() => handleImageClick(i)}
-                >
-                  <Image
-                    src={img.url}
-                    alt={img.metadata?.name || 'Media'}
-                    fill
-                    className="object-cover group-hover:scale-105 transition-transform duration-500"
-                    unoptimized
-                  />
-                  <div className="absolute inset-0 bg-black/0 group-hover:bg-black/20 transition-colors" />
+        {count === 2 && items.map((item, i) => renderItem(item, i))}
+        
+        {count === 3 && (
+          <>
+            {renderItem(items[0], 0, true)}
+            {renderItem(items[1], 1)}
+            {renderItem(items[2], 2)}
+          </>
+        )}
 
-                  {showOverlay && (
-                    <div className="absolute inset-0 bg-black/70 backdrop-blur-[2px] flex items-center justify-center text-white z-10">
-                      <span className="font-bold text-2xl tracking-tighter">+{remaining}</span>
-                    </div>
-                  )}
-                </button>
-              )}
-            </div>
-          );
-        })}
+        {count >= 4 && items.slice(0, 4).map((item, i) => renderItem(item, i))}
       </div>
-      {modalElement}
+
+      <ImageModal
+        isOpen={selectedIndex !== null}
+        images={modalImages}
+        initialIndex={selectedIndex ?? 0}
+        onClose={() => setSelectedIndex(null)}
+      />
     </>
   );
 }

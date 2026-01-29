@@ -6,6 +6,7 @@ import {
   text, 
   timestamp, 
   uuid, 
+  index,
   type AnyPgColumn // Імпортуємо AnyPgColumn саме звідси
 } from 'drizzle-orm/pg-core';
 import type { Attachment } from '@/types';
@@ -101,4 +102,12 @@ export const messagesRelations = relations(messages, ({ one }) => ({
     references: [messages.id],
     relationName: 'replyingTo',
   }),
+}));
+
+export const uploadAudit = pgTable('upload_audit', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  userId: uuid('user_id').references(() => users.id).notNull(),
+  createdAt: timestamp('created_at').defaultNow().notNull(),
+}, (table) => ({
+  userTimeIdx: index('idx_upload_audit_user_time').on(table.userId, table.createdAt),
 }));

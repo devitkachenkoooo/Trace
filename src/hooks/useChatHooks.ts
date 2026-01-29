@@ -571,14 +571,14 @@ export function useScrollToMessage(
   const [highlightedId, setHighlightedId] = useState<string | null>(null);
 
   const scrollToMessage = useCallback(
-    async (messageId: string) => {
+    async (messageId: string, options?: { align?: 'start' | 'center' | 'end'; behavior?: 'smooth' | 'auto' }) => {
       const index = messages.findIndex((m: Message) => m.id === messageId);
 
       if (index !== -1) {
         virtuosoRef.current?.scrollToIndex({
           index,
-          behavior: 'smooth',
-          align: 'center',
+          behavior: options?.behavior || 'smooth',
+          align: options?.align || 'center',
         });
         setHighlightedId(messageId);
         setTimeout(() => setHighlightedId(null), 2000);

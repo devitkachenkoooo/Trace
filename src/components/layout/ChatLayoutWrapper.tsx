@@ -20,13 +20,12 @@ export default function ChatLayoutWrapper({ children, sidebar, user }: ChatLayou
   const [prevPathname, setPrevPathname] = useState<string | null>(null);
   const pathname = usePathname();
 
-  // Синхронізація при зміні шляху (без useEffect)
+  // Синхронізація при зміні шляху
   if (pathname !== prevPathname) {
-    if (isSidebarOpen) setIsSidebarOpen(false); // Закриваємо тільки якщо був відкритий
+    if (isSidebarOpen) setIsSidebarOpen(false);
     setPrevPathname(pathname);
   }
 
-  // Використовуємо useCallback, щоб посилання на функцію не змінювалося
   const handleClose = useCallback(() => {
     setIsSidebarOpen(false);
   }, []);
@@ -43,40 +42,44 @@ export default function ChatLayoutWrapper({ children, sidebar, user }: ChatLayou
       <Navbar user={user} onMenuClick={toggleSidebar} />
 
       <div className="flex flex-1 pt-16 relative overflow-hidden">
-        {user && (
-          <>
-            <button
-              type="button"
-              id="sidebar-overlay"
-              className={`
-                fixed inset-0 bg-black/60 backdrop-blur-sm lg:hidden
-                transition-opacity duration-300
-                z-[80] 
-                ${isSidebarOpen ? 'opacity-100 pointer-events-auto' : 'opacity-0 pointer-events-none'}
-              `}
-              onClick={() => setIsSidebarOpen(false)}
-              onKeyDown={(e) => {
-                if (e.key === 'Escape') setIsSidebarOpen(false);
-              }}
-              aria-label="Close Sidebar"
-            />
+        {/* Overlay for mobile */}
+        <button
+          type="button"
+          id="sidebar-overlay"
+          className={`
+            fixed inset-0 bg-black/60 backdrop-blur-sm lg:hidden
+            transition-opacity duration-300
+            z-[80] 
+            ${isSidebarOpen ? 'opacity-100 pointer-events-auto' : 'opacity-0 pointer-events-none'}
+          `}
+          onClick={() => setIsSidebarOpen(false)}
+          onKeyDown={(e) => {
+            if (e.key === 'Escape') setIsSidebarOpen(false);
+          }}
+          aria-label="Close Sidebar"
+        />
 
-            <div
-              className={`
-                fixed lg:static inset-y-0 left-0 
-                z-[90] 
-                transform ${isSidebarOpen ? 'translate-x-0' : '-translate-x-full lg:translate-x-0'}
-                transition-transform duration-300 ease-in-out
-                w-80 h-[calc(100dvh-64px)] mt-16 lg:mt-0
-                bg-black lg:bg-transparent
-              `}
-            >
-              {sidebar}
-            </div>
-          </>
-        )}
+        {/* Sidebar Container with smooth transition */}
+        <aside
+          className={`
+            fixed lg:static inset-y-0 left-0 
+            z-[90] 
+            transform ${isSidebarOpen ? 'translate-x-0' : '-translate-x-full lg:translate-x-0'}
+            transition-all duration-300 ease-in-out
+            h-[calc(100dvh-64px)] mt-16 lg:mt-0
+            bg-black lg:bg-transparent
+            border-r border-white/5
+            ${user ? 'w-80 opacity-100 visible' : 'w-0 opacity-0 invisible overflow-hidden border-none'}
+          `}
+        >
+          <div className="w-80 h-full overflow-hidden">
+            {sidebar}
+          </div>
+        </aside>
 
-        <main className="flex-1 w-full min-w-0 relative z-0">{children}</main>
+        <main className="flex-1 w-full min-w-0 relative z-0 transition-all duration-300">
+          {children}
+        </main>
       </div>
     </div>
   );

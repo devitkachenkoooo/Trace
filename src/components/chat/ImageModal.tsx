@@ -1,7 +1,7 @@
 'use client';
 
 import { AnimatePresence, motion } from 'framer-motion';
-import { AlertCircle, ChevronLeft, ChevronRight, Clock, Download, X } from 'lucide-react';
+import { AlertCircle, ChevronLeft, ChevronRight, Download, ImageOff, X } from 'lucide-react';
 import Image from 'next/image';
 import { useCallback, useEffect, useState } from 'react';
 import { createPortal } from 'react-dom';
@@ -197,12 +197,12 @@ export function ImageModal({ isOpen, images, initialIndex, onClose }: ImageModal
                 ) : (
                   <div className="flex flex-col items-center gap-4 text-white/50 bg-white/5 p-12 rounded-3xl border border-white/10 backdrop-blur-sm">
                     <div className="relative">
-                      <Clock className="w-16 h-16 opacity-20" />
+                      <ImageOff className="w-16 h-16 opacity-20" />
                       <AlertCircle className="w-8 h-8 text-red-500 absolute -bottom-1 -right-1" />
                     </div>
                     <div className="text-center">
-                      <p className="text-lg font-medium text-white/80">Медіа недоступне</p>
-                      <p className="text-sm text-white/40">Файл видалено або він застарів</p>
+                      <p className="text-lg font-medium text-white/80 uppercase tracking-tight">Media not available</p>
+                      <p className="text-sm text-white/40 mt-1">The file has been deleted or expired</p>
                     </div>
                   </div>
                 )}
