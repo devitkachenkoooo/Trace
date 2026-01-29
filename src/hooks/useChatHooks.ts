@@ -388,6 +388,7 @@ export function useSendMessage(chatId: string) {
         id: `temp-${Date.now()}`,
         content: newMessage.content,
         sender_id: user?.id,
+        senderId: user?.id,
         chat_id: chatId,
         created_at: new Date().toISOString(), // для бази/сокета
         createdAt: new Date().toISOString(),  // для твого UI-компонента
@@ -526,16 +527,21 @@ export function useDeleteChat() {
       return chatId;
     },
     onSuccess: (chatId) => {
-      // 1. Оновлюємо кеш списку чатів, щоб видалений чат зник з інтерфейсу
+      // 1. ПРЕВЕНТИВНО видаляємо всі запити, пов'язані з цим чатом
+      // Це зупинить будь-які спроби React Query рефетчити дані, поки ми переходимо на іншу сторінку
+      queryClient.removeQueries({ queryKey: ['chat', chatId] });
+      queryClient.removeQueries({ queryKey: ['messages', chatId] });
+
+      // 2. Оновлюємо список чатів локально (оптимістично)
       queryClient.setQueryData(['chats'], (old: any) => {
         if (!old) return old;
         return old.filter((chat: any) => chat.id !== chatId);
       });
 
-      // 2. Виводимо сповіщення
+      // 3. Виводимо сповіщення
       toast.success('Чат видалено');
 
-      // 3. Редірект на головну сторінку месенджера
+      // 4. Редірект на головну сторінку месенджера
       router.push('/chat'); 
     },
     onError: (error: Error) => {

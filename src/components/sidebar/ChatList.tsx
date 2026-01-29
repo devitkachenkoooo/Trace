@@ -46,7 +46,7 @@ export default function ChatList() {
           
           const userLastReadAt = chat.userLastRead?.createdAt;
           const isUnread = lastMessage && 
-                          lastMessage.senderId !== currentUserId && 
+                          (lastMessage.senderId || lastMessage.sender_id) !== currentUserId && 
                           (!userLastReadAt || new Date(lastMessage.createdAt) > new Date(userLastReadAt));
 
           return (
@@ -92,7 +92,7 @@ export default function ChatList() {
 
                     <div className="flex items-center justify-between gap-2 mt-0.5">
                       <p className="text-[11px] text-gray-500 truncate flex-1">
-                        {lastMessage?.senderId === currentUserId && 'Ви: '}
+                        {(lastMessage?.senderId || lastMessage?.sender_id) === currentUserId && 'Ви: '}
                         {lastMessage?.content ||
                           (lastMessage?.attachments?.length ? '📎 Медіа' : 'Немає повідомлень')}
                       </p>

@@ -62,23 +62,40 @@ export function useGlobalRealtime(user: User | null) {
       .on(
         'postgres_changes',
         { event: '*', schema: 'public', table: 'chats' },
-        () => {
-          queryClient.invalidateQueries({
-            queryKey: ['chats'],
-            exact: false,
-          });
-          queryClient.invalidateQueries({
-             queryKey: ['chat'],
-             exact: false,
-          });
+        (payload: any) => {
+          // 1. If chat was deleted, REMOVE it from cache to prevent ghost refetches
+          if (payload.eventType === 'DELETE') {
+            const deletedId = payload.old.id;
+            queryClient.removeQueries({ queryKey: ['chat', deletedId] });
+            queryClient.removeQueries({ queryKey: ['messages', deletedId] });
+            
+            // Also invalidate the list to remove it from sidebar
+            queryClient.invalidateQueries({ queryKey: ['chats'] });
+            return;
+          }
+
+          // 2. For UPDATE/INSERT, we can be more specific
+          const chatId = payload.new?.id;
+          
+          queryClient.invalidateQueries({ queryKey: ['chats'] });
+          if (chatId) {
+            queryClient.invalidateQueries({ queryKey: ['chat', chatId] });
+          }
         },
       )
       .on(
         'postgres_changes',
         { event: '*', schema: 'public', table: 'messages' },
-        () => {
-          queryClient.invalidateQueries({ queryKey: ['chats'], exact: false });
-          queryClient.invalidateQueries({ queryKey: ['messages'], exact: false });
+        (payload: any) => {
+          const chatId = payload.new?.chat_id || payload.old?.chat_id;
+          
+          // Always invalidate chats list to update the last message preview
+          queryClient.invalidateQueries({ queryKey: ['chats'] });
+          
+          // Only invalidate the specific chat messages if we have the ID
+          if (chatId) {
+            queryClient.invalidateQueries({ queryKey: ['messages', chatId] });
+          }
         },
       )
       .subscribe(async (status: string) => {
