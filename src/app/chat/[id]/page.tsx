@@ -4,21 +4,22 @@ import { AnimatePresence, motion } from 'framer-motion';
 import { ChevronDown } from 'lucide-react';
 import Image from 'next/image';
 import { useRouter } from 'next/navigation';
-import { use, useCallback, useEffect, useRef, useState } from 'react';
+import { use, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Virtuoso, type VirtuosoHandle } from 'react-virtuoso';
+
 import ChatInput from '@/components/chat/ChatInput';
 import { MessageBubble } from '@/components/chat/MessageBubble';
 import { useSupabaseAuth } from '@/components/SupabaseAuthProvider';
 import { ConfirmationDialog } from '@/components/ui/confirmation-dialog';
 import {
   useChatDetails,
+  useChatTyping,
   useDeleteMessage,
   useMessages,
   usePresence,
-  useChatTyping,
   useScrollToMessage,
 } from '@/hooks/useChatHooks';
-import { formatRelativeTime } from '@/lib/date-utils';
+import { formatRelativeTime, getSafeTimestamp } from '@/lib/date-utils';
 import type { Message, User } from '@/types';
 
 export default function ChatPage({ params }: { params: Promise<{ id: string }> }) {
@@ -60,7 +61,7 @@ export default function ChatPage({ params }: { params: Promise<{ id: string }> }
     }
   }, [isChatLoading, chat, isError, router, isMessagesLoading]);
 
-  // Interaction Handlers (Stabilized for performance)
+  // Interaction Handlers
   const handleReply = useCallback((message: Message) => {
     setEditingMessage(null);
     setReplyingTo(message);
@@ -74,6 +75,17 @@ export default function ChatPage({ params }: { params: Promise<{ id: string }> }
   const handleScrollToMessage = useCallback((messageId: string) => {
     scrollToMessage(messageId, { align: 'center' });
   }, [scrollToMessage]);
+
+  // --- ЛОГІКА ОНОВЛЕННЯ ГАЛОЧОК ---
+  const recipientLastReadAt = useMemo(() => {
+    if (!chat || !user) return null;
+    
+    // Визначаємо, чий timestamp читання нас цікавить (співрозмовника)
+    const isUserCreator = chat.userId === user.id;
+    return isUserCreator 
+      ? chat.recipientLastRead?.createdAt 
+      : chat.userLastRead?.createdAt;
+  }, [chat, user]);
 
   if (isChatLoading || (isMessagesLoading && !messages.length)) {
     return (
@@ -91,11 +103,6 @@ export default function ChatPage({ params }: { params: Promise<{ id: string }> }
   const otherParticipant = chat.participants.find((p: User) => p.id !== user?.id);
   const isOnline = otherParticipant && onlineUsers.has(otherParticipant.id);
   const isTypingNow = otherParticipant && typingUsers[otherParticipant.id];
-
-  const isUserCreator = chat.userId === user?.id;
-  const recipientLastReadAt = isUserCreator 
-    ? chat.recipientLastRead?.createdAt 
-    : chat.userLastRead?.createdAt;
 
   return (
     <div className="flex flex-col h-[calc(100dvh-64px)] w-full bg-background relative overflow-hidden">
@@ -145,7 +152,6 @@ export default function ChatPage({ params }: { params: Promise<{ id: string }> }
             ref={virtuosoRef}
             data={messages}
             initialTopMostItemIndex={messages.length - 1}
-            // "smooth" для автоматичного скролу нових повідомлень від співрозмовника
             followOutput={(isAtBottom) => (isAtBottom ? 'smooth' : false)}
             className="no-scrollbar"
             atBottomStateChange={(atBottom) => setShowScrollButton(!atBottom)}
@@ -160,7 +166,16 @@ export default function ChatPage({ params }: { params: Promise<{ id: string }> }
                   key={message.id}
                   message={message}
                   currentUserId={user?.id}
-                  recipientLastReadAt={recipientLastReadAt}
+                  isRead={
+  // 1. Повідомлення відправив Я
+  (message.senderId || message.sender_id) === user?.id &&
+  // 2. У нас Є дата прочитання від іншого користувача
+  !!recipientLastReadAt && 
+  // 3. Ця дата — це не порожній рядок і не помилка
+  getSafeTimestamp(recipientLastReadAt) !== 0 &&
+  // 4. ТІЛЬКИ ТОДІ порівнюємо
+  getSafeTimestamp(message.createdAt || message.created_at) <= getSafeTimestamp(recipientLastReadAt)
+}
                   onReply={handleReply}
                   onEdit={handleEdit}
                   onDelete={setMessageToDelete}
@@ -184,13 +199,11 @@ export default function ChatPage({ params }: { params: Promise<{ id: string }> }
                   ) : null}
                 </div>
               ),
-              // Footer виступає як якір для скролу в самий низ
               Footer: () => <div className="h-6 w-full" />,
             }}
           />
         )}
 
-        {/* Floating Scroll Button */}
         <AnimatePresence>
           {showScrollButton && messages.length > 0 && (
             <motion.button
@@ -199,7 +212,7 @@ export default function ChatPage({ params }: { params: Promise<{ id: string }> }
               exit={{ opacity: 0, y: 10 }}
               onClick={() => {
                 virtuosoRef.current?.scrollToIndex({
-                  index: messages.length, // Скролимо до футера
+                  index: messages.length,
                   behavior: 'smooth',
                   align: 'end',
                 });
@@ -227,7 +240,6 @@ export default function ChatPage({ params }: { params: Promise<{ id: string }> }
               setReplyingTo(null);
               setEditingMessage(null);
               
-              // Якщо це не редагування — плавно скролимо до самого низу (до футера)
               if (!wasEditing) {
                 requestAnimationFrame(() => {
                   virtuosoRef.current?.scrollToIndex({

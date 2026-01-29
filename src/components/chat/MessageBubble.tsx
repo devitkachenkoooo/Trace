@@ -1,7 +1,8 @@
-import { memo } from 'react';
-import { AnimatePresence, motion } from 'framer-motion';
 import Linkify from 'linkify-react';
 import { Check, CheckCheck, Clock, Download, FileIcon, Reply, Trash2 } from 'lucide-react';
+import { memo } from 'react';
+import { AnimatePresence, motion } from 'framer-motion';
+
 import {
   ContextMenu,
   ContextMenuContent,
@@ -17,7 +18,7 @@ import { MessageMediaGrid } from './MessageMediaGrid';
 interface MessageBubbleProps {
   message: Message;
   currentUserId: string | undefined;
-  recipientLastReadAt?: string | null;
+  isRead?: boolean;
   onReply: (message: Message) => void;
   onEdit: (message: Message) => void;
   onDelete: (messageId: string) => void;
@@ -30,7 +31,7 @@ export const MessageBubble = memo(
   ({
     message,
     currentUserId,
-    recipientLastReadAt,
+    isRead,
     onReply,
     onEdit,
     onDelete,
@@ -41,13 +42,6 @@ export const MessageBubble = memo(
     // Перевіряємо обидва варіанти написання ID для сумісності з БД та оптимістичним об'єктом
     const senderId = message.senderId || message.sender_id;
     const isMe = senderId === currentUserId;
-
-    // Cache timestamps to avoid repeated new Date() calls in render if possible, 
-    // although with memo they run less often anyway.
-    const messageTime = new Date(message.createdAt).getTime();
-    const lastReadTime = recipientLastReadAt ? new Date(recipientLastReadAt).getTime() : 0;
-    
-    const isRead = isMe && lastReadTime > 0 && messageTime <= lastReadTime;
 
     const mediaAttachments = message.attachments?.filter((a) => a.type === 'image' || a.type === 'video') || [];
     const fileAttachments = message.attachments?.filter((a) => a.type === 'file') || [];
@@ -85,10 +79,12 @@ export const MessageBubble = memo(
                   const reply = message.replyDetails || message.replyTo;
                   if (!reply) return null;
 
-                  const replySenderId = 
-                    'senderId' in reply ? reply.senderId : 
-                    'sender_id' in reply ? (reply as { sender_id: string }).sender_id : 
-                    undefined;
+                  const replySenderId =
+                    'senderId' in reply
+                      ? reply.senderId
+                      : 'sender_id' in reply
+                        ? (reply as { sender_id: string }).sender_id
+                        : undefined;
 
                   const senderName =
                     reply.sender?.name || (replySenderId === currentUserId ? 'You' : otherParticipantName);
@@ -234,36 +230,22 @@ export const MessageBubble = memo(
     );
   },
   (prev, next) => {
-    // 1. Basic property checks
+    // 1. Core content identity
     if (prev.message.id !== next.message.id) return false;
     if (prev.message.updated_at !== next.message.updated_at) return false;
     if (prev.message.content !== next.message.content) return false;
+    
+    // 2. State & Context
+    if (prev.isRead !== next.isRead) return false;
     if (prev.isHighlighed !== next.isHighlighed) return false;
     if (prev.currentUserId !== next.currentUserId) return false;
     if (prev.otherParticipantName !== next.otherParticipantName) return false;
 
-    // 2. Callback stability checks
+    // 3. Stable callbacks
     if (prev.onReply !== next.onReply) return false;
     if (prev.onEdit !== next.onEdit) return false;
     if (prev.onDelete !== next.onDelete) return false;
     if (prev.onScrollToMessage !== next.onScrollToMessage) return false;
-
-    // 3. Read Status Logic optimization
-    const isMe = (next.message.senderId || next.message.sender_id) === next.currentUserId;
-
-    if (isMe) {
-      if (prev.recipientLastReadAt !== next.recipientLastReadAt) {
-        const messageTime = new Date(next.message.createdAt).getTime();
-        const prevReadTime = prev.recipientLastReadAt ? new Date(prev.recipientLastReadAt).getTime() : 0;
-        const nextReadTime = next.recipientLastReadAt ? new Date(next.recipientLastReadAt).getTime() : 0;
-
-        const wasRead = prevReadTime > 0 && messageTime <= prevReadTime;
-        const isReadNow = nextReadTime > 0 && messageTime <= nextReadTime;
-
-        // If the read status hasn't actually flipped, we can skip the re-render
-        if (wasRead !== isReadNow) return false;
-      }
-    }
 
     return true;
   },

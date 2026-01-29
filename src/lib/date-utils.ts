@@ -1,43 +1,45 @@
+// src/lib/date-utils.ts
 import { format, isToday, isYesterday } from 'date-fns';
 import { uk } from 'date-fns/locale';
 
-/**
- * Для повідомлень у самому чаті (HH:mm або дата)
- */
-export function formatMessageDate(date: any) {
-  if (!date) return '';
-  try {
-    const d = new Date(date);
-    if (isNaN(d.getTime())) return '';
-
-    if (isToday(d)) return format(d, 'HH:mm');
-    if (isYesterday(d)) return `Вчора, ${format(d, 'HH:mm')}`;
-    
-    return format(d, 'd MMM, HH:mm', { locale: uk });
-  } catch (err) {
-    return '';
-  }
-}
+type DateInput = string | number | Date | null | undefined;
 
 /**
- * відносний час
+ * Перетворює будь-яку дату від Supabase у валідний таймстамп (ms)
  */
-export function formatRelativeTime(date: any) {
-  if (!date) return '';
+export function getSafeTimestamp(date: DateInput): number {
+  if (!date) return 0;
   try {
-    // Якщо дата приходить як рядок і не містить інфо про пояс, додаємо 'Z' (UTC)
+    // Твоя фірмова логіка очистки рядка
     const dateString = typeof date === 'string' && !date.includes('Z') && !date.includes('+') 
       ? `${date.replace(' ', 'T')}Z` 
       : date;
 
     const d = new Date(dateString);
-    if (isNaN(d.getTime())) return '';
-
-    if (isToday(d)) return format(d, 'HH:mm');
-    if (isYesterday(d)) return 'Вчора';
-    
-    return format(d, 'dd.MM.yy');
-  } catch (err) {
-    return '';
+    return Number.isNaN(d.getTime()) ? 0 : d.getTime();
+  } catch {
+    return 0;
   }
+}
+
+export function formatMessageDate(date: DateInput) {
+  const ts = getSafeTimestamp(date);
+  if (!ts) return '';
+  const d = new Date(ts);
+
+  if (isToday(d)) return format(d, 'HH:mm');
+  if (isYesterday(d)) return `Вчора, ${format(d, 'HH:mm')}`;
+  
+  return format(d, 'd MMM, HH:mm', { locale: uk });
+}
+
+export function formatRelativeTime(date: DateInput) {
+  const ts = getSafeTimestamp(date);
+  if (!ts) return '';
+  const d = new Date(ts);
+
+  if (isToday(d)) return format(d, 'HH:mm');
+  if (isYesterday(d)) return 'Вчора';
+  
+  return format(d, 'dd.MM.yy');
 }
