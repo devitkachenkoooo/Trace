@@ -1,9 +1,10 @@
 'use client';
 
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { MutationCache, QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { ReactQueryDevtools } from '@tanstack/react-query-devtools';
 import { useState, useEffect, useRef } from 'react';
-import { toast } from 'sonner';
+import { toast, Toaster } from 'sonner';
+import { GlobalErrorBoundary } from '@/components/GlobalErrorBoundary';
 
 /**
  * Внутрішній компонент-запобіжник.
@@ -47,6 +48,17 @@ export default function Providers({ children }: { children: React.ReactNode }) {
   // Ініціалізуємо QueryClient один раз через useState
   const [queryClient] = useState(() => {
     return new QueryClient({
+      mutationCache: new MutationCache({
+        onError: (error: any) => {
+          // If the error has a 'status' property, it was likely handled by the Supabase fetch interceptor
+          // We only want to toast for client-side errors or unexpected issues here.
+          if (!error?.status) {
+            toast.error('Error', {
+              description: error.message || 'An unexpected error occurred.',
+            });
+          }
+        },
+      }),
       defaultOptions: {
         queries: {
           staleTime: 60 * 1000,
@@ -62,9 +74,21 @@ export default function Providers({ children }: { children: React.ReactNode }) {
 
   return (
     <QueryClientProvider client={queryClient}>
-      <RenderGuard>
-        {children}
-      </RenderGuard>
+      <GlobalErrorBoundary>
+        <RenderGuard>
+          {children}
+        </RenderGuard>
+        <Toaster 
+          position="top-right" 
+          richColors 
+          closeButton 
+          expand={true}
+          visibleToasts={3}
+          toastOptions={{
+            style: { zIndex: 9999 }
+          }}
+        />
+      </GlobalErrorBoundary>
       <ReactQueryDevtools initialIsOpen={false} />
     </QueryClientProvider>
   );

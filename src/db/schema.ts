@@ -55,7 +55,6 @@ export const messages = pgTable('messages', {
   replyToId: uuid('reply_to_id')
     .references((): AnyPgColumn => messages.id, { onDelete: 'set null' }),
   
-  isRead: boolean('is_read').notNull().default(false),
   createdAt: timestamp('created_at').notNull().defaultNow(),
 });
 
