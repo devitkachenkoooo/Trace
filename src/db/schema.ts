@@ -7,7 +7,7 @@ import {
   timestamp, 
   uuid, 
   index,
-  type AnyPgColumn // Імпортуємо AnyPgColumn саме звідси
+  type AnyPgColumn 
 } from 'drizzle-orm/pg-core';
 import type { Attachment } from '@/types';
 
@@ -19,7 +19,9 @@ export const users = pgTable('user', {
   emailVerified: timestamp('emailVerified', { mode: 'date' }),
   image: text('image'),
   lastSeen: timestamp('last_seen', { mode: 'date' }).defaultNow(),
-});
+}, (table) => ({
+  emailIdx: index('idx_user_email').on(table.email), // Для швидкого пошуку контактів
+}));
 
 // --- ТАБЛИЦЯ ЧАТІВ ---
 export const chats = pgTable('chats', {
@@ -30,7 +32,6 @@ export const chats = pgTable('chats', {
   recipientId: uuid('recipient_id')
     .references(() => users.id, { onDelete: 'cascade' }),
   
-  // Використовуємо явне повернення типу для розриву циклу
   userLastReadId: uuid('user_last_read_id')
     .references((): AnyPgColumn => messages.id, { onDelete: 'set null' }),
   recipientLastReadId: uuid('recipient_last_read_id')
@@ -38,7 +39,10 @@ export const chats = pgTable('chats', {
 
   title: text('title').notNull().default('New Chat'),
   createdAt: timestamp('created_at').notNull().defaultNow(),
-});
+}, (table) => ({
+  // Для швидкого виведення списку чатів конкретного юзера
+  userRecipientIdx: index('idx_chats_users').on(table.userId, table.recipientId),
+}));
 
 // --- ТАБЛИЦЯ ПОВІДОМЛЕНЬ ---
 export const messages = pgTable('messages', {
@@ -56,7 +60,12 @@ export const messages = pgTable('messages', {
     .references((): AnyPgColumn => messages.id, { onDelete: 'set null' }),
   
   createdAt: timestamp('created_at').notNull().defaultNow(),
-});
+}, (table) => ({
+  // КРИТИЧНО: Пришвидшує рендер чату та сортування за часом
+  chatCreatedIdx: index('idx_messages_chat_created').on(table.chatId, table.createdAt),
+  // Пришвидшує пошук повідомлень від конкретного відправника
+  senderIdx: index('idx_messages_sender').on(table.senderId),
+}));
 
 // --- ВІДНОСИНИ (RELATIONS) ---
 export const usersRelations = relations(users, ({ many }) => ({
@@ -75,7 +84,6 @@ export const chatsRelations = relations(chats, ({ one, many }) => ({
     references: [users.id],
     relationName: 'recipient',
   }),
-  // Додаємо зв'язок для покажчиків прочитаного
   userLastReadMessage: one(messages, {
     fields: [chats.userLastReadId],
     references: [messages.id],

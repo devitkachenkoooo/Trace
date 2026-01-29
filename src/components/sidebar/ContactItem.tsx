@@ -8,9 +8,10 @@ import { formatRelativeTime } from '@/lib/date-utils';
 import type { User } from '@/types';
 import { cn } from '@/lib/utils';
 
+import { PresenceIndicator } from './PresenceIndicator';
+
 interface ContactItemProps {
   user: User;
-  isOnline: boolean;
   disabled: boolean;
   onActionStart?: (id: string) => void;
   onActionEnd?: () => void;
@@ -18,7 +19,6 @@ interface ContactItemProps {
 
 export function ContactItem({ 
   user, 
-  isOnline, 
   disabled,
   onActionStart,
   onActionEnd 
@@ -61,9 +61,10 @@ export function ContactItem({
             </div>
           )}
         </div>
-        {isOnline && (
-          <div className="absolute bottom-0 right-0 w-3 h-3 bg-green-500 rounded-full border-2 border-black shadow-[0_0_8px_rgba(34,197,94,0.5)]" />
-        )}
+        <PresenceIndicator 
+          userId={user.id} 
+          className="absolute bottom-0 right-0 w-3 h-3" 
+        />
       </div>
       
       <div className="flex-1 min-w-0">
@@ -74,7 +75,12 @@ export function ContactItem({
           <p className="text-[10px] text-gray-500 truncate lowercase">
             {user.email}
           </p>
-          {!isOnline && user.lastSeen && (
+          <PresenceIndicator 
+             userId={user.id} 
+             showOffline={false}
+             className="hidden" 
+          /> 
+           {user.lastSeen && (
             <>
               <span className="text-[10px] text-gray-600">•</span>
               <p className="text-[10px] text-gray-500">

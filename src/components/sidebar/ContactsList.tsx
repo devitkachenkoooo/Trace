@@ -2,7 +2,7 @@
 
 import { Loader2, User as UserIcon } from 'lucide-react';
 import { useState } from 'react';
-import { usePresence, useSearchUsers } from '@/hooks/useChatHooks';
+import { useSearchUsers } from '@/hooks/useChatHooks';
 import { ContactItem } from './ContactItem';
 
 interface ContactsListProps {
@@ -11,7 +11,7 @@ interface ContactsListProps {
 
 export default function ContactsList({ query }: ContactsListProps) {
   const { data: users, isLoading } = useSearchUsers(query);
-  const { onlineUsers } = usePresence();
+  // const { onlineUsers } = usePresence(); // REMOVED
 
   // Стан для відстеження чи створюється зараз якийсь чат
   const [isCreatingChat, setIsCreatingChat] = useState(false);
@@ -60,7 +60,6 @@ export default function ContactsList({ query }: ContactsListProps) {
         <ContactItem
           key={user.id}
           user={user}
-          isOnline={onlineUsers.has(user.id)}
           disabled={isCreatingChat}
           onActionStart={() => setIsCreatingChat(true)}
           onActionEnd={() => setIsCreatingChat(false)}

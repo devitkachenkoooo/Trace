@@ -13,14 +13,16 @@ import {
   ContextMenuSeparator,
   ContextMenuTrigger,
 } from '@/components/ui/context-menu';
-import { useChats, useDeleteChat, usePresence } from '@/hooks/useChatHooks';
+import { useChats, useDeleteChat } from '@/hooks/useChatHooks';
+import { PresenceIndicator } from './PresenceIndicator';
 import { formatRelativeTime } from '@/lib/date-utils';
 
 export default function ChatList() {
   const { data: chats, isLoading } = useChats();
   const { user } = useSupabaseAuth();
+
   const deleteChat = useDeleteChat();
-  const { onlineUsers } = usePresence();
+  // const { onlineUsers } = usePresence(); // REMOVED: Caused full re-renders
   const [chatToDelete, setChatToDelete] = useState<string | null>(null);
 
   const currentUserId = user?.id;
@@ -71,9 +73,12 @@ export default function ChatList() {
                       ) : (
                         <User className="w-5 h-5 text-gray-400 group-hover:text-white transition-colors" />
                       )}
-                    </div>
-                    {partner?.id && onlineUsers.has(partner.id) && (
-                      <div className="absolute bottom-0 right-0 w-2.5 h-2.5 bg-green-500 rounded-full border-2 border-black shadow-[0_0_8px_rgba(34,197,94,0.5)]" />
+                     </div>
+                    {partner?.id && (
+                      <PresenceIndicator 
+                        userId={partner.id} 
+                        className="absolute bottom-0 right-0 w-2.5 h-2.5" 
+                      />
                     )}
                   </div>
 
