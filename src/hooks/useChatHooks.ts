@@ -14,6 +14,7 @@ import { useRouter } from 'next/navigation';
 import { useSupabaseAuth } from '@/components/SupabaseAuthProvider';
 import { supabase } from '@/lib/supabase/client';
 import { usePresenceStore } from '@/store/usePresenceStore';
+import { normalizePayload } from '@/lib/supabase/utils';
 import type { FullChat, Message, User } from '@/types';
 
 // 1. Отримання чатів
@@ -51,7 +52,7 @@ export function useChats() {
         throw error;
       }
 
-      const normalizedChats = data as FullChat[];
+      const normalizedChats = normalizePayload<FullChat[]>(data);
       
       // Сортуємо за датою останнього повідомлення (Bubble to top)
       return normalizedChats.sort((a, b) => {
@@ -113,10 +114,12 @@ export function useChatDetails(chatId: string) {
 
       if (error) throw error;
 
+      const normalizedData = normalizePayload<FullChat>(data);
+      
       // Normalize participants for the UI
-      const participants = [data.participants, data.recipient].filter(Boolean) as User[];
+      const participants = [normalizedData.participants, normalizedData.recipient].filter(Boolean) as User[];
 
-      return { ...data, participants } as FullChat;
+      return { ...normalizedData, participants } as FullChat;
     },
     enabled: !!chatId && !!user,
   });
@@ -148,9 +151,10 @@ export function useMessages(chatId: string) {
         console.error("Помилка завантаження повідомлень:", error.message);
         throw error;
       }
+      const normalizedData = normalizePayload<Message[]>(data || []);
       
       // Повертаємо масив (нові повідомлення будуть в кінці масиву сторінки)
-      return (data || []).reverse() as Message[];
+      return normalizedData.reverse();
     },
     initialPageParam: undefined as string | undefined,
     getPreviousPageParam: (firstPage) => {
@@ -385,16 +389,12 @@ export function useSendMessage(chatId: string) {
       const optimisticMessage = {
         id: `temp-${Date.now()}`,
         content: newMessage.content,
-        sender_id: user?.id,
         senderId: user?.id,
-        chat_id: chatId,
-        created_at: new Date().toISOString(), // для бази/сокета
-        createdAt: new Date().toISOString(),  // для твого UI-компонента
-        reply_to_id: newMessage.replyToId || null,
+        chatId: chatId,
+        createdAt: new Date().toISOString(),
         replyTo: parentMessage,
         attachments: newMessage.attachments || [],
-        is_read: false,
-        is_optimistic: true 
+        isOptimistic: true 
       };
 
       // Оновлюємо кеш React Query
