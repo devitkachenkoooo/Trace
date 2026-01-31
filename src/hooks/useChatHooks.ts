@@ -13,7 +13,6 @@ import { useRouter } from 'next/navigation';
 // Залишаємо тільки ОДИН варіант авторизації та клієнта
 import { useSupabaseAuth } from '@/components/SupabaseAuthProvider';
 import { supabase } from '@/lib/supabase/client';
-import { normalizePayload } from '@/lib/supabase/utils';
 import { usePresenceStore } from '@/store/usePresenceStore';
 import type { FullChat, Message, User } from '@/types';
 
@@ -52,7 +51,7 @@ export function useChats() {
         throw error;
       }
 
-      const normalizedChats = normalizePayload(data) as FullChat[];
+      const normalizedChats = data as FullChat[];
       
       // Сортуємо за датою останнього повідомлення (Bubble to top)
       return normalizedChats.sort((a, b) => {
@@ -117,7 +116,7 @@ export function useChatDetails(chatId: string) {
       // Normalize participants for the UI
       const participants = [data.participants, data.recipient].filter(Boolean) as User[];
 
-      return normalizePayload({ ...data, participants }) as FullChat;
+      return { ...data, participants } as FullChat;
     },
     enabled: !!chatId && !!user,
   });
@@ -151,8 +150,7 @@ export function useMessages(chatId: string) {
       }
       
       // Повертаємо масив (нові повідомлення будуть в кінці масиву сторінки)
-      const normalizedData = (data || []).map((msg: any) => normalizePayload(msg));
-      return (normalizedData as Message[]).reverse();
+      return (data || []).reverse() as Message[];
     },
     initialPageParam: undefined as string | undefined,
     getPreviousPageParam: (firstPage) => {
@@ -174,7 +172,7 @@ export function useMessages(chatId: string) {
     });
     
     const msgId = latestMessage.id;
-    const msgSenderId = latestMessage.sender_id || latestMessage.senderId;
+    const msgSenderId = latestMessage.senderId;
 
     if (msgId && msgSenderId !== user.id && lastProcessedId.current !== msgId) {
       lastProcessedId.current = msgId;
@@ -218,7 +216,7 @@ export function useSearchUsers(queryText: string) {
         throw error;
       }
 
-      return normalizePayload(data) as User[];
+      return data as User[];
     },
     // Запит спрацює тільки коли є юзер і або порожній рядок, або > 1 символа
     enabled: !!currentUser?.id && (queryText.trim().length === 0 || queryText.trim().length > 1),

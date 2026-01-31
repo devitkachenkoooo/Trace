@@ -90,8 +90,11 @@ export function useGlobalRealtime(user: User | null) {
         (payload: RealtimePayload<ChatPayload>) => {
           console.log('🚀 Realtime: Chats update received:', payload);
 
+          const normalizedNew = payload.new ? normalizePayload<ChatPayload>(payload.new) : null;
+          const normalizedOld = payload.old ? normalizePayload<Partial<ChatPayload>>(payload.old) : null;
+
           if (payload.eventType === 'DELETE') {
-            const deletedId = payload.old.id;
+            const deletedId = normalizedOld?.id;
             queryClient.removeQueries({ queryKey: ['chat', deletedId] });
             queryClient.setQueryData(['chats'], (old: FullChat[] | undefined) => 
               old ? old.filter(c => c.id !== deletedId) : []
@@ -100,7 +103,7 @@ export function useGlobalRealtime(user: User | null) {
           }
 
           if (payload.eventType === 'UPDATE') {
-            const updatedChat = payload.new;
+            const updatedChat = normalizedNew;
             if (!updatedChat) return;
 
             const messagesCache = queryClient.getQueryData<InfiniteData<Message[]>>(['messages', updatedChat.id]);
@@ -133,10 +136,10 @@ export function useGlobalRealtime(user: User | null) {
               if (!oldData) return oldData;
               return {
                 ...oldData,
-                recipientLastRead: resolveReadStatus(updatedChat.recipient_last_read_id, oldData.recipientLastRead),
-                userLastRead: resolveReadStatus(updatedChat.user_last_read_id, oldData.userLastRead),
-                recipientLastReadId: updatedChat.recipient_last_read_id ?? oldData.recipientLastReadId,
-                userLastReadId: updatedChat.user_last_read_id ?? oldData.userLastReadId,
+                recipientLastRead: resolveReadStatus(updatedChat.recipientLastReadId as string | null | undefined, oldData.recipientLastRead),
+                userLastRead: resolveReadStatus(updatedChat.userLastReadId as string | null | undefined, oldData.userLastRead),
+                recipientLastReadId: updatedChat.recipientLastReadId ?? oldData.recipientLastReadId,
+                userLastReadId: updatedChat.userLastReadId ?? oldData.userLastReadId,
               } as FullChat;
             });
 
@@ -147,10 +150,10 @@ export function useGlobalRealtime(user: User | null) {
                 if (c.id !== updatedChat.id) return c;
                 return {
                   ...c,
-                  recipientLastRead: resolveReadStatus(updatedChat.recipient_last_read_id, c.recipientLastRead),
-                  userLastRead: resolveReadStatus(updatedChat.user_last_read_id, c.userLastRead),
-                  recipientLastReadId: updatedChat.recipient_last_read_id ?? c.recipientLastReadId,
-                  userLastReadId: updatedChat.user_last_read_id ?? c.userLastReadId,
+                  recipientLastRead: resolveReadStatus(updatedChat.recipientLastReadId as string | null | undefined, c.recipientLastRead),
+                  userLastRead: resolveReadStatus(updatedChat.userLastReadId as string | null | undefined, c.userLastRead),
+                  recipientLastReadId: updatedChat.recipientLastReadId ?? c.recipientLastReadId,
+                  userLastReadId: updatedChat.userLastReadId ?? c.userLastReadId,
                 };
               });
             });
@@ -176,7 +179,8 @@ export function useGlobalRealtime(user: User | null) {
           }
 
           if (payload.eventType === 'INSERT') {
-            const newChat = payload.new;
+            const newChat = normalizedNew;
+            if (!newChat) return;
             const isParticipant = !newChat.user_id || newChat.user_id === userId || newChat.recipient_id === userId;
             if (isParticipant) {
               queryClient.invalidateQueries({ queryKey: ['chats'] });
@@ -191,8 +195,11 @@ export function useGlobalRealtime(user: User | null) {
           const chatId = payload.new?.chat_id || payload.old?.chat_id;
           if (!chatId) return;
 
+          const normalizedNew = payload.new ? normalizePayload<MessagePayload>(payload.new) : null;
+          const normalizedOld = payload.old ? normalizePayload<Partial<MessagePayload>>(payload.old) : null;
+
           if (payload.eventType === 'DELETE') {
-            const deletedId = payload.old.id;
+            const deletedId = normalizedOld?.id;
             queryClient.setQueryData(['messages', chatId], (oldData: InfiniteData<Message[]> | undefined) => {
               if (!oldData) return oldData;
               return {
@@ -205,7 +212,8 @@ export function useGlobalRealtime(user: User | null) {
           }
 
           if (payload.eventType === 'INSERT') {
-            const newMessage = normalizePayload<Message>(payload.new);
+            const newMessage = normalizedNew;
+            if (!newMessage) return;
             queryClient.setQueryData(['messages', chatId], (oldData: InfiniteData<Message[]> | undefined) => {
                if (!oldData) return oldData;
                const newPages = [...oldData.pages];
@@ -215,9 +223,9 @@ export function useGlobalRealtime(user: User | null) {
                
                // Ensure the last page exists before appending
                if (lastPageIdx >= 0) {
-                 newPages[lastPageIdx] = [...newPages[lastPageIdx], newMessage];
+                 newPages[lastPageIdx] = [...newPages[lastPageIdx], newMessage as unknown as Message];
                } else {
-                 newPages[0] = [newMessage];
+                 newPages[0] = [newMessage as unknown as Message];
                }
                
                return { ...oldData, pages: newPages };
@@ -227,13 +235,14 @@ export function useGlobalRealtime(user: User | null) {
           }
 
           if (payload.eventType === 'UPDATE') {
-            const updatedMessage = normalizePayload<Message>(payload.new);
+            const updatedMessage = normalizedNew;
+            if (!updatedMessage) return;
             queryClient.setQueryData(['messages', chatId], (oldData: InfiniteData<Message[]> | undefined) => {
                if (!oldData) return oldData;
                return {
                  ...oldData,
                  pages: oldData.pages.map((page) => 
-                   page.map((msg) => msg.id === updatedMessage.id ? updatedMessage : msg)
+                   page.map((msg) => msg.id === updatedMessage.id ? updatedMessage as unknown as Message : msg)
                  )
                };
             });
