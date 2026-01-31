@@ -94,7 +94,7 @@ export default function ChatInput({
     // 1. Очищуємо UI миттєво (для відчуття швидкості)
     setContent('');
     setTyping(false);
-    if (onReplyCancel) onReplyCancel();
+    // Don't clear reply state yet - wait for successful send
 
     const attachmentsBackup = attachments
       .filter((a) => a.url && !a.error && !a.uploading)
@@ -114,9 +114,11 @@ export default function ChatInput({
         // ВІДПРАВКА НОВОГО
         await sendMessage.mutateAsync({
           content: trimmed,
-          replyToId: replyToId || undefined,
+          reply_to_id: replyToId || undefined,
           attachments: attachmentsBackup,
         });
+        // Clear reply state only after successful send
+        if (onReplyCancel) onReplyCancel();
       }
       
       if (onMessageSent) onMessageSent();

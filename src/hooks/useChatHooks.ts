@@ -437,6 +437,7 @@ export function useSendMessage(chatId: string) {
         sender_id: user?.id,
         chat_id: chatId,
         created_at: new Date().toISOString(),
+        reply_to_id: newMessage.reply_to_id || null,
         reply_to: parentMessage,
         attachments: newMessage.attachments || [],
         is_optimistic: true 
