@@ -24,20 +24,17 @@ export interface Message {
   id: string;
   chatId: string;
   senderId: string;
-  sender_id?: string; // для сумісності з DB/Realtime
   content: string;
-  attachments: any[]; // або твій тип Attachment[]
+  attachments: Attachment[];
   createdAt: string;
-  created_at?: string; // ДОДАНО: тепер TypeScript не буде сваритися
-  updated_at?: string | null;
+  updatedAt?: string | null;
   replyToId?: string | null;
-  reply_to_id?: string | null;
   replyDetails?: {
     id: string;
     sender: { name?: string | null };
     content: string;
     senderId?: string;
-    attachments?: any[];
+    attachments?: Attachment[];
   } | null;
   replyTo?: Message;
   sender?: User | null;
