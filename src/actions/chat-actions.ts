@@ -45,14 +45,14 @@ async function getCurrentUser() {
         email: user.email ?? '',
         name: userName,
         image: userImage,
-        lastSeen: new Date(),
+        last_seen: new Date(),
       })
       .onConflictDoUpdate({
         target: users.id,
         set: {
           name: userName,
           image: userImage,
-          lastSeen: new Date(),
+          last_seen: new Date(),
         },
       })
       .returning();
@@ -68,7 +68,9 @@ async function getCurrentUser() {
 
 export async function getOrCreateChatAction(targetUserId: string) {
   const user = await getCurrentUser();
-  if (!user?.id) throw new Error('Unauthorized');
+  if (!user?.id) {
+    return null;
+  }
 
   const myId = user.id;
   let targetChatId: string | null = null;
@@ -76,8 +78,8 @@ export async function getOrCreateChatAction(targetUserId: string) {
   try {
     const existingChat = await db.query.chats.findFirst({
       where: or(
-        and(eq(chats.userId, myId), eq(chats.recipientId, targetUserId)),
-        and(eq(chats.userId, targetUserId), eq(chats.recipientId, myId)),
+        and(eq(chats.user_id, myId), eq(chats.recipient_id, targetUserId)),
+        and(eq(chats.user_id, targetUserId), eq(chats.recipient_id, myId)),
       ),
     });
 
@@ -91,8 +93,8 @@ export async function getOrCreateChatAction(targetUserId: string) {
       const [newChat] = await db
         .insert(chats)
         .values({
-          userId: myId,
-          recipientId: targetUserId,
+          user_id: myId,
+          recipient_id: targetUserId,
           title: targetUser?.name || 'Приватний чат',
         })
         .returning();
@@ -101,14 +103,55 @@ export async function getOrCreateChatAction(targetUserId: string) {
     }
   } catch (error) {
     console.error('Error in getOrCreateChatAction:', error);
-    // Ми не редиректимо при помилці, щоб не висіла загрузка без причини
-    throw new Error('Failed to create or find chat');
+    return null;
   }
 
   // Редирект має бути в самому кінці, поза try/catch
   if (targetChatId) {
     revalidatePath('/chat');
     redirect(`/chat/${targetChatId}`);
+  }
+
+  return null;
+}
+
+export async function markAsReadAction(chatId: string, messageId: string) {
+  const user = await getCurrentUser();
+  if (!user?.id) {
+    return { success: false, error: 'unauthorized' };
+  }
+
+  try {
+    // First, get the chat to determine which field to update
+    const chat = await db.query.chats.findFirst({
+      where: eq(chats.id, chatId),
+    });
+
+    if (!chat) {
+      return { success: false, error: 'chat_not_found' };
+    }
+
+    // Determine which read field to update based on who the user is
+    const updateData: any = {};
+    
+    if (chat.user_id === user.id) {
+      updateData.user_last_read_id = messageId;
+    } else if (chat.recipient_id === user.id) {
+      updateData.recipient_last_read_id = messageId;
+    } else {
+      return { success: false, error: 'not_participant' };
+    }
+
+    // Update the chat with the new read status
+    await db
+      .update(chats)
+      .set(updateData)
+      .where(eq(chats.id, chatId));
+
+    return { success: true };
+  } catch (error) {
+    console.error('Error in markAsReadAction:', error);
+    return { success: false, error: 'failed_to_mark_as_read' };
   }
 }
 

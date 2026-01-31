@@ -40,16 +40,38 @@ export default function ChatList() {
     <>
       <div className="flex-1 overflow-y-auto px-2 space-y-1">
         {chats.map((chat) => {
-          const partner = chat.userId === currentUserId ? chat.recipient : chat.user;
+          const partner = chat.user_id === currentUserId ? chat.recipient : chat.user;
           const chatDisplayTitle = partner?.name || chat.title || 'Користувач Trace';
           const partnerImage = partner?.image;
 
           const lastMessage = chat.messages?.[0];
           
-          const userLastReadAt = chat.userLastRead?.createdAt;
+          // Determine which read field to check based on who the current user is
+          const isCurrentUser = chat.user_id === currentUserId;
+          const readMessageId = isCurrentUser ? chat.user_last_read_id : chat.recipient_last_read_id;
+          
+          // Find the read message in the messages array to get its created_at timestamp
+          const readMessage = chat.messages?.find(m => m.id === readMessageId);
+          const readAt = readMessage?.created_at;
+          
           const isUnread = lastMessage && 
-                          (lastMessage.senderId || lastMessage.sender_id) !== currentUserId && 
-                          (!userLastReadAt || new Date(lastMessage.createdAt) > new Date(userLastReadAt));
+                          lastMessage.sender_id !== currentUserId && 
+                          (!readAt || new Date(lastMessage.created_at) > new Date(readAt));
+
+          // Debug logging for unread status
+          console.log('🔍 ChatList Unread Check:', {
+            chatId: chat.id,
+            isCurrentUser,
+            lastMessage: lastMessage?.id,
+            lastMessageSender: lastMessage?.sender_id,
+            currentUserId,
+            readMessageId,
+            readMessage,
+            readAt,
+            isUnread,
+            lastMessageCreatedAt: lastMessage?.created_at,
+            comparison: readAt ? new Date(lastMessage.created_at) > new Date(readAt) : 'no readAt'
+          });
 
           return (
             <ContextMenu key={chat.id}>
@@ -90,14 +112,14 @@ export default function ChatList() {
 
                       {lastMessage && (
                         <span className="text-[10px] text-gray-500 whitespace-nowrap">
-                          {formatRelativeTime(lastMessage.createdAt)}
+                          {formatRelativeTime(lastMessage.created_at)}
                         </span>
                       )}
                     </div>
 
                     <div className="flex items-center justify-between gap-2 mt-0.5">
                       <p className="text-[11px] text-gray-500 truncate flex-1">
-                        {(lastMessage?.senderId || lastMessage?.sender_id) === currentUserId && 'Ви: '}
+                        {lastMessage?.sender_id === currentUserId && 'Ви: '}
                         {lastMessage?.content ||
                           (lastMessage?.attachments?.length ? '📎 Медіа' : 'Немає повідомлень')}
                       </p>

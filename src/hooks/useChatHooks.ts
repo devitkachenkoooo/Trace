@@ -5,7 +5,8 @@ import {
   useInfiniteQuery, 
   useMutation, 
   useQuery, 
-  useQueryClient 
+  useQueryClient,
+  type InfiniteData
 } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import { useRouter } from 'next/navigation';
@@ -14,7 +15,6 @@ import { useRouter } from 'next/navigation';
 import { useSupabaseAuth } from '@/components/SupabaseAuthProvider';
 import { supabase } from '@/lib/supabase/client';
 import { usePresenceStore } from '@/store/usePresenceStore';
-import { normalizePayload } from '@/lib/supabase/utils';
 import type { FullChat, Message, User } from '@/types';
 
 // 1. Отримання чатів
@@ -32,14 +32,12 @@ export function useChats() {
           *,
           user:user_id(*),      
           recipient:recipient_id(*),
-          userLastRead:user_last_read_id(id, createdAt:created_at),
-          recipientLastRead:recipient_last_read_id(id, createdAt:created_at),
           messages!messages_chat_id_chats_id_fk(
             id, 
             content, 
-            createdAt:created_at, 
-            senderId:sender_id, 
-            chat_id:chat_id, 
+            created_at, 
+            sender_id, 
+            chat_id, 
             attachments
           )
         `)
@@ -52,12 +50,24 @@ export function useChats() {
         throw error;
       }
 
-      const normalizedChats = normalizePayload<FullChat[]>(data);
+      // Use data directly since it's already in snake_case format
+      const normalizedChats = data as FullChat[];
+      
+      // Debug logging for chat data
+      console.log('📋 Chats data from Supabase:', normalizedChats.map(chat => ({
+        id: chat.id,
+        user_id: chat.user_id,
+        recipient_id: chat.recipient_id,
+        user_last_read: chat.user_last_read,
+        recipient_last_read: chat.recipient_last_read,
+        lastMessage: chat.messages?.[0]?.id,
+        lastMessageSender: chat.messages?.[0]?.sender_id
+      })));
       
       // Сортуємо за датою останнього повідомлення (Bubble to top)
-      return normalizedChats.sort((a, b) => {
-        const dateA = a.messages?.[0]?.createdAt || a.createdAt;
-        const dateB = b.messages?.[0]?.createdAt || b.createdAt;
+      return normalizedChats.sort((a: FullChat, b: FullChat) => {
+        const dateA = a.messages?.[0]?.created_at || a.created_at;
+        const dateB = b.messages?.[0]?.created_at || b.created_at;
         return new Date(dateB).getTime() - new Date(dateA).getTime();
       });
     },
@@ -71,21 +81,55 @@ export function useMarkAsRead() {
 
   return useMutation({
     mutationFn: async ({ chatId, messageId }: { chatId: string; messageId: string }) => {
-      if (!user?.id) return;
+      if (!user?.id) throw new Error('User not authenticated');
 
-      const { error } = await supabase.rpc('mark_chat_as_read', {
-        p_chat_id: chatId,        // використовуємо p_ для чіткості з SQL параметрами
-        p_message_id: messageId,
-        p_user_id: user.id        // ПЕРЕДАЄМО ID ЯВНО, щоб уникнути NULL сесії
+      const { markAsReadAction } = await import('@/actions/chat-actions');
+      const result = await markAsReadAction(chatId, messageId);
+      
+      if (!result.success) {
+        throw new Error(result.error || 'Failed to mark as read');
+      }
+      
+      return result;
+    },
+    onMutate: async ({ chatId, messageId }) => {
+      // Cancel any outgoing refetches
+      await queryClient.cancelQueries({ queryKey: ['chats'] });
+      
+      // Snapshot the previous value
+      const previousChats = queryClient.getQueryData(['chats']);
+
+      // Optimistically update the chats cache
+      queryClient.setQueryData(['chats'], (old: any) => {
+        if (!old) return old;
+        
+        return old.map((chat: any) => {
+          if (chat.id === chatId) {
+            const isCurrentUser = chat.user_id === user?.id;
+            const readField = isCurrentUser ? 'user_last_read' : 'recipient_last_read';
+            
+            return {
+              ...chat,
+              [readField]: {
+                id: messageId,
+                created_at: new Date().toISOString()
+              }
+            };
+          }
+          return chat;
+        });
       });
 
-      if (error) {
-        console.error('Error marking as read:', error);
-        throw error;
+      return { previousChats };
+    },
+    onError: (err, variables, context) => {
+      // Rollback on error
+      if (context?.previousChats) {
+        queryClient.setQueryData(['chats'], context.previousChats);
       }
     },
     onSuccess: (_, { chatId }) => {
-      // Оновлюємо кеш, щоб MessageBubble побачив нову дату в recipientLastReadAt
+      // Invalidate to ensure consistency
       queryClient.invalidateQueries({ queryKey: ['chats'] });
       queryClient.invalidateQueries({ queryKey: ['chat', chatId] });
     },
@@ -104,20 +148,19 @@ export function useChatDetails(chatId: string) {
         .from('chats')
         .select(`
           *,
-          participants:user!user_id(*),
-          recipient:user!recipient_id(*),
-          userLastRead:user_last_read_id(id, created_at),
-          recipientLastRead:recipient_last_read_id(id, created_at)
+          user:user_id(*),
+          recipient:recipient_id(*)
         `)
         .eq('id', chatId)
         .single();
 
       if (error) throw error;
 
-      const normalizedData = normalizePayload<FullChat>(data);
+      // Use data directly since it's already in snake_case format
+      const normalizedData = data as FullChat;
       
       // Normalize participants for the UI
-      const participants = [normalizedData.participants, normalizedData.recipient].filter(Boolean) as User[];
+      const participants = [normalizedData.user, normalizedData.recipient].filter(Boolean) as User[];
 
       return { ...normalizedData, participants } as FullChat;
     },
@@ -130,9 +173,9 @@ export function useMessages(chatId: string) {
   const markAsReadMutation = useMarkAsRead();
   const lastProcessedId = useRef<string | null>(null);
 
-  const query = useInfiniteQuery({
+  const query = useInfiniteQuery<Message[], Error, InfiniteData<Message[]>, string[], string | undefined>({
     queryKey: ['messages', chatId],
-    queryFn: async ({ pageParam }) => {
+    queryFn: async ({ pageParam }: { pageParam?: string }) => {
       if (!chatId) return [];
 
       const { data, error } = await supabase
@@ -141,7 +184,7 @@ export function useMessages(chatId: string) {
          * ВИПРАВЛЕННЯ PGRST200:
          * Використовуємо 'replyTo:reply_to_id(*)' замість імені ключа fkey.
          */
-        .select('*, replyTo:reply_to_id(*)')
+        .select('*, reply_to:reply_to_id(*)')
         .eq('chat_id', chatId)
         .order('created_at', { ascending: false })
         .limit(50)
@@ -151,15 +194,17 @@ export function useMessages(chatId: string) {
         console.error("Помилка завантаження повідомлень:", error.message);
         throw error;
       }
-      const normalizedData = normalizePayload<Message[]>(data || []);
+      // Use data directly since it's already in snake_case format
+      const normalizedData = (data || []) as Message[];
       
       // Повертаємо масив (нові повідомлення будуть в кінці масиву сторінки)
       return normalizedData.reverse();
     },
     initialPageParam: undefined as string | undefined,
-    getPreviousPageParam: (firstPage) => {
+    getPreviousPageParam: (firstPage): string | undefined => {
       if (!firstPage || firstPage.length < 50) return undefined;
-      return (firstPage[0] as Message).createdAt;
+      const createdAt = (firstPage[0] as Message).created_at;
+      return createdAt instanceof Date ? createdAt.toISOString() : createdAt;
     },
     getNextPageParam: () => undefined,
     enabled: !!chatId,
@@ -171,12 +216,12 @@ export function useMessages(chatId: string) {
     const allMessages = query.data?.pages.flat() || [];
     if (allMessages.length === 0 || !user?.id) return;
 
-    const latestMessage = allMessages.reduce((prev, current) => {
-      return (new Date(current.createdAt) > new Date(prev.createdAt)) ? current : prev;
+    const latestMessage = allMessages.reduce((prev: Message, current: Message) => {
+      return (new Date(current.created_at) > new Date(prev.created_at)) ? current : prev;
     });
     
     const msgId = latestMessage.id;
-    const msgSenderId = latestMessage.senderId;
+    const msgSenderId = latestMessage.sender_id;
 
     if (msgId && msgSenderId !== user.id && lastProcessedId.current !== msgId) {
       lastProcessedId.current = msgId;
@@ -298,7 +343,7 @@ export function useEditMessage(chatId: string) {
         .from('messages')
         .update({ content, updated_at: new Date().toISOString() })
         .eq('id', messageId)
-        .select('*, replyTo:reply_to_id(*)')
+        .select('*, reply_to:reply_to_id(*)')
         .single();
 
       if (error) throw error;
@@ -342,11 +387,11 @@ export function useSendMessage(chatId: string) {
   return useMutation({
     mutationFn: async ({ 
       content, 
-      replyToId,
+      reply_to_id,
       attachments 
     }: { 
       content: string; 
-      replyToId?: string;
+      reply_to_id?: string;
       attachments?: any[];
     }) => {
       if (!user) throw new Error('Ви не авторизовані');
@@ -359,10 +404,10 @@ export function useSendMessage(chatId: string) {
           chat_id: chatId,
           sender_id: user.id,
           content,
-          reply_to_id: replyToId || null,
+          reply_to_id: reply_to_id || null,
           attachments: attachments || [],
         })
-        .select('*, replyTo:reply_to_id(*)')
+        .select('*, reply_to:reply_to_id(*)')
         .single();
 
       if (error) {
@@ -381,20 +426,20 @@ export function useSendMessage(chatId: string) {
 
       // Знаходимо повідомлення, на яке відповідаємо (для UI)
       const allMessages = (previousData as any)?.pages?.flat() || [];
-      const parentMessage = newMessage.replyToId 
-        ? allMessages.find((m: any) => m.id === newMessage.replyToId)
+      const parentMessage = newMessage.reply_to_id 
+        ? allMessages.find((m: any) => m.id === newMessage.reply_to_id)
         : null;
 
       // Створюємо "фейкове" повідомлення для миттєвого відображення
       const optimisticMessage = {
         id: `temp-${Date.now()}`,
         content: newMessage.content,
-        senderId: user?.id,
-        chatId: chatId,
-        createdAt: new Date().toISOString(),
-        replyTo: parentMessage,
+        sender_id: user?.id,
+        chat_id: chatId,
+        created_at: new Date().toISOString(),
+        reply_to: parentMessage,
         attachments: newMessage.attachments || [],
-        isOptimistic: true 
+        is_optimistic: true 
       };
 
       // Оновлюємо кеш React Query
@@ -465,13 +510,21 @@ export function useDeleteMessage(chatId: string) {
 
   return useMutation({
     mutationFn: async (messageId: string) => {
+      console.log('🗑️ Deleting message:', { chatId, messageId });
+      
       const { data, error } = await supabase
         .from('messages')
         .delete()
         .eq('id', messageId)
         .select(); 
 
-      if (error) throw error;
+      if (error) {
+        console.error('❌ Delete message error:', error);
+        throw error;
+      }
+      
+      console.log('✅ Delete message result:', data);
+      
       if (!data || data.length === 0) {
         throw new Error('Немає прав на видалення або повідомлення вже видалено');
       }

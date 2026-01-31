@@ -10,7 +10,8 @@
     "lint": "eslint src",
     "format": "biome format --write ./src",
     "check": "biome check --write ./src && pnpm lint",
-    "setup": "pnpm install --frozen-lockfile"
+    "setup": "pnpm install --frozen-lockfile",
+    "xml": "npx repomix"
   },
   "dependencies": {
     "@radix-ui/react-alert-dialog": "^1.1.15",

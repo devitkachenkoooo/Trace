@@ -4,7 +4,6 @@ import { type InfiniteData, useQueryClient } from '@tanstack/react-query';
 import { useEffect } from 'react';
 
 import { supabase } from '@/lib/supabase/client';
-import { normalizePayload } from '@/lib/supabase/utils';
 import { usePresenceStore } from '@/store/usePresenceStore';
 import type { FullChat, Message } from '@/types';
 import type { User } from '@supabase/supabase-js';
@@ -42,12 +41,19 @@ export function useGlobalRealtime(user: User | null) {
   const setOnlineUsers = usePresenceStore((state) => state.setOnlineUsers);
 
   useEffect(() => {
-    if (!user?.id) return;
+    if (!user?.id) {
+      console.log('🚫 No user ID, skipping realtime subscription');
+      return;
+    }
+    
     const userId = user.id;
+    console.log('👤 Setting up realtime for user:', userId);
 
     const channel = supabase.channel('db-global-updates', {
       config: { presence: { key: userId } },
     });
+
+    console.log('📡 Creating channel with config:', { presence: { key: userId } });
 
     const updateLastSeen = async () => {
       await supabase.rpc('update_last_seen');
@@ -90,11 +96,11 @@ export function useGlobalRealtime(user: User | null) {
         (payload: RealtimePayload<ChatPayload>) => {
           console.log('🚀 Realtime: Chats update received:', payload);
 
-          const normalizedNew = payload.new ? normalizePayload<ChatPayload>(payload.new) : null;
-          const normalizedOld = payload.old ? normalizePayload<Partial<ChatPayload>>(payload.old) : null;
+          const newPayload = payload.new;
+          const oldPayload = payload.old;
 
           if (payload.eventType === 'DELETE') {
-            const deletedId = normalizedOld?.id;
+            const deletedId = oldPayload?.id;
             queryClient.removeQueries({ queryKey: ['chat', deletedId] });
             queryClient.setQueryData(['chats'], (old: FullChat[] | undefined) => 
               old ? old.filter(c => c.id !== deletedId) : []
@@ -103,72 +109,56 @@ export function useGlobalRealtime(user: User | null) {
           }
 
           if (payload.eventType === 'UPDATE') {
-            const updatedChat = normalizedNew;
+            const updatedChat = newPayload;
             if (!updatedChat) return;
 
             const messagesCache = queryClient.getQueryData<InfiniteData<Message[]>>(['messages', updatedChat.id]);
             const allMessages = messagesCache?.pages.flat() || [];
             let shouldInvalidate = false;
 
-            const resolveReadStatus = (newId: string | undefined | null, oldStatus: { id: string; createdAt: string } | null | undefined) => {
-              if (!newId || newId === oldStatus?.id) return oldStatus;
+            const resolveReadStatus = (newReadId: string | undefined | null, oldReadId: string | undefined | null) => {
+              if (!newReadId || newReadId === oldReadId) return oldReadId;
 
-              // Check for message in strict typed array first, but handle potentially raw data structure if needed
-              // casting to 'any' for the find search to support _id fallback if accidentally present
-              const message = allMessages.find((m) => m.id === newId) as (Message & { _id?: string }) | undefined;
+              const message = allMessages.find((m) => m.id === newReadId) as Message | undefined;
               
               if (message) {
-                 // Try standard 'createdAt' first (Project convention), fallback to 'created_at' if raw
-                const timestamp = message.createdAt || (message as any).created_at || (message as any).timestamp;
+                const timestamp = message.created_at;
                 if (timestamp) {
-                  console.log('✅ Found message for status:', newId, timestamp);
-                  return { id: newId, createdAt: timestamp };
+                  console.log(' Found message for status:', newReadId, timestamp);
+                  return newReadId;
                 }
               }
 
-              console.warn('⚠️ Message not found in cache for ID:', newId);
+              console.warn(' Message not found in cache for ID:', newReadId);
               shouldInvalidate = true; 
-              return oldStatus; 
+              return oldReadId; 
             };
 
-            // 1. Update Detailed Chat Cache
+            const currentChatData = queryClient.getQueryData(['chats']) as FullChat[] | undefined;
+            const currentChat = currentChatData?.find(c => c.id === updatedChat.id);
+            
+            const userLastReadId = resolveReadStatus(updatedChat.user_last_read_id, currentChat?.user_last_read_id);
+            const recipientLastReadId = resolveReadStatus(updatedChat.recipient_last_read_id, currentChat?.recipient_last_read_id);
+
             queryClient.setQueryData(['chat', updatedChat.id], (oldData: FullChat | undefined) => {
               if (!oldData) return oldData;
               return {
                 ...oldData,
-                recipientLastRead: resolveReadStatus(updatedChat.recipientLastReadId as string | null | undefined, oldData.recipientLastRead),
-                userLastRead: resolveReadStatus(updatedChat.userLastReadId as string | null | undefined, oldData.userLastRead),
-                recipientLastReadId: updatedChat.recipientLastReadId ?? oldData.recipientLastReadId,
-                userLastReadId: updatedChat.userLastReadId ?? oldData.userLastReadId,
+                user_last_read_id: userLastReadId,
+                recipient_last_read_id: recipientLastReadId,
               } as FullChat;
             });
 
-            // 2. Update Sidebar Chat List
             queryClient.setQueryData(['chats'], (oldChats: FullChat[] | undefined) => {
               if (!oldChats) return oldChats;
               return oldChats.map((c) => {
                 if (c.id !== updatedChat.id) return c;
                 return {
                   ...c,
-                  recipientLastRead: resolveReadStatus(updatedChat.recipientLastReadId as string | null | undefined, c.recipientLastRead),
-                  userLastRead: resolveReadStatus(updatedChat.userLastReadId as string | null | undefined, c.userLastRead),
-                  recipientLastReadId: updatedChat.recipientLastReadId ?? c.recipientLastReadId,
-                  userLastReadId: updatedChat.userLastReadId ?? c.userLastReadId,
+                  user_last_read_id: userLastReadId,
+                  recipient_last_read_id: recipientLastReadId,
                 };
               });
-            });
-
-            // 3. FORCE RE-RENDER of messages to update "isRead" status in UI
-            // We're expecting InfiniteData structure here
-            queryClient.setQueryData(['messages', updatedChat.id], (oldData: InfiniteData<Message[]> | undefined) => {
-              if (!oldData) return oldData;
-              // We need to trigger a reference change for the data consumption hooks
-              return {
-                ...oldData,
-                // Adding a property to the root object might not be valid for InfiniteData type strictly, 
-                // but if we just want to re-trigger, copying the array is safer in React Query
-                pages: [...oldData.pages]
-              };
             });
 
             if (shouldInvalidate) {
@@ -179,7 +169,7 @@ export function useGlobalRealtime(user: User | null) {
           }
 
           if (payload.eventType === 'INSERT') {
-            const newChat = normalizedNew;
+            const newChat = newPayload;
             if (!newChat) return;
             const isParticipant = !newChat.user_id || newChat.user_id === userId || newChat.recipient_id === userId;
             if (isParticipant) {
@@ -190,74 +180,163 @@ export function useGlobalRealtime(user: User | null) {
       )
       .on(
         'postgres_changes',
-        { event: '*', schema: 'public', table: 'messages' },
+        { event: 'DELETE', schema: 'public', table: 'messages' },
+        (payload: RealtimePayload<MessagePayload>) => {
+          console.log('🗑️ Realtime: Message deletion received:', { 
+            fullPayload: payload,
+            payloadNew: payload.new,
+            payloadOld: payload.old,
+            deletedId: payload.old?.id,
+            chatId: payload.old?.chat_id,
+            eventType: payload.eventType,
+            allOldKeys: Object.keys(payload.old || {}),
+            allNewKeys: Object.keys(payload.new || {})
+          });
+          
+          const deletedId = payload.old?.id;
+          let chatId = payload.old?.chat_id;
+          
+          // If chatId is missing, try to get it from the current cache
+          if (!chatId && deletedId) {
+            console.log('🔍 chat_id missing from payload, searching cache...');
+            // Search through all message caches to find which chat this message belongs to
+            const allChats = queryClient.getQueryData(['chats']) as FullChat[] | undefined;
+            if (allChats) {
+              for (const chat of allChats) {
+                const messagesCache = queryClient.getQueryData(['messages', chat.id]) as InfiniteData<Message[]> | undefined;
+                const allMessages = messagesCache?.pages.flat() || [];
+                if (allMessages.some(m => m.id === deletedId)) {
+                  chatId = chat.id;
+                  console.log('🎯 Found chatId from cache:', chatId);
+                  break;
+                }
+              }
+            }
+          }
+          
+          if (!deletedId || !chatId) {
+            console.warn('⚠️ Missing required data in DELETE payload:', { deletedId, chatId, payload });
+            return;
+          }
+          
+          console.log('🎯 Processing deletion for chat:', chatId, 'message:', deletedId);
+          
+          // Check current cache state before update
+          const currentCache = queryClient.getQueryData(['messages', chatId]) as InfiniteData<Message[]> | undefined;
+          console.log('📋 Current cache state:', {
+            hasData: !!currentCache,
+            pageCount: currentCache?.pages?.length || 0,
+            totalMessages: currentCache?.pages?.reduce((sum: number, page: Message[]) => sum + page.length, 0) || 0
+          });
+          
+          queryClient.setQueryData(['messages', chatId], (oldData: InfiniteData<Message[]> | undefined) => {
+            if (!oldData) {
+              console.log('📭 No existing data for messages cache, skipping update');
+              return oldData;
+            }
+            
+            const newData = {
+              ...oldData,
+              pages: oldData.pages.map((page) => {
+                const filteredPage = page.filter((m) => m.id !== deletedId);
+                console.log(`🔄 Filtered page: ${page.length} → ${filteredPage.length} messages`);
+                return filteredPage;
+              }),
+            };
+            
+            const totalMessages = newData.pages.reduce((sum, page) => sum + page.length, 0);
+            console.log(`📊 Total messages after deletion: ${totalMessages}`);
+            
+            return newData;
+          });
+          
+          // Also update the chats cache to reflect the latest message change
+          queryClient.setQueryData(['chats'], (oldChats: FullChat[] | undefined) => {
+            if (!oldChats) return oldChats;
+            
+            return oldChats.map((chat) => {
+              if (chat.id !== chatId) return chat;
+              
+              const updatedMessages = chat.messages?.filter((m: Message) => m.id !== deletedId) || [];
+              
+              return {
+                ...chat,
+                messages: updatedMessages,
+              };
+            });
+          });
+          
+          console.log('✅ Message deletion processed successfully');
+        }
+      )
+      .on(
+        'postgres_changes',
+        { event: 'INSERT', schema: 'public', table: 'messages' },
+        (payload: RealtimePayload<MessagePayload>) => {
+          const chatId = payload.new?.chat_id;
+          if (!chatId) return;
+
+          const newMessage = payload.new;
+          if (!newMessage) return;
+          
+          queryClient.setQueryData(['messages', chatId], (oldData: InfiniteData<Message[]> | undefined) => {
+             if (!oldData) return oldData;
+             const newPages = [...oldData.pages];
+             const lastPageIdx = newPages.length - 1;
+             const exists = newPages.some(page => page.some((m: Message) => m.id === newMessage.id));
+             if (exists) return oldData;
+             
+             if (lastPageIdx >= 0) {
+               newPages[lastPageIdx] = [...newPages[lastPageIdx], newMessage as unknown as Message];
+             } else {
+               newPages[0] = [newMessage as unknown as Message];
+             }
+             
+             return { ...oldData, pages: newPages };
+          });
+          queryClient.invalidateQueries({ queryKey: ['chats'] });
+        }
+      )
+      .on(
+        'postgres_changes',
+        { event: 'UPDATE', schema: 'public', table: 'messages' },
         (payload: RealtimePayload<MessagePayload>) => {
           const chatId = payload.new?.chat_id || payload.old?.chat_id;
           if (!chatId) return;
 
-          const normalizedNew = payload.new ? normalizePayload<MessagePayload>(payload.new) : null;
-          const normalizedOld = payload.old ? normalizePayload<Partial<MessagePayload>>(payload.old) : null;
-
-          if (payload.eventType === 'DELETE') {
-            const deletedId = normalizedOld?.id;
-            queryClient.setQueryData(['messages', chatId], (oldData: InfiniteData<Message[]> | undefined) => {
-              if (!oldData) return oldData;
-              return {
-                ...oldData,
-                pages: oldData.pages.map((page) => page.filter((m) => m.id !== deletedId)),
-              };
-            });
-            queryClient.invalidateQueries({ queryKey: ['chats'] });
-            return;
-          }
-
-          if (payload.eventType === 'INSERT') {
-            const newMessage = normalizedNew;
-            if (!newMessage) return;
-            queryClient.setQueryData(['messages', chatId], (oldData: InfiniteData<Message[]> | undefined) => {
-               if (!oldData) return oldData;
-               const newPages = [...oldData.pages];
-               const lastPageIdx = newPages.length - 1;
-               const exists = newPages.some(page => page.some((m) => m.id === newMessage.id));
-               if (exists) return oldData;
-               
-               // Ensure the last page exists before appending
-               if (lastPageIdx >= 0) {
-                 newPages[lastPageIdx] = [...newPages[lastPageIdx], newMessage as unknown as Message];
-               } else {
-                 newPages[0] = [newMessage as unknown as Message];
-               }
-               
-               return { ...oldData, pages: newPages };
-            });
-            queryClient.invalidateQueries({ queryKey: ['chats'] });
-            return;
-          }
-
-          if (payload.eventType === 'UPDATE') {
-            const updatedMessage = normalizedNew;
-            if (!updatedMessage) return;
-            queryClient.setQueryData(['messages', chatId], (oldData: InfiniteData<Message[]> | undefined) => {
-               if (!oldData) return oldData;
-               return {
-                 ...oldData,
-                 pages: oldData.pages.map((page) => 
-                   page.map((msg) => msg.id === updatedMessage.id ? updatedMessage as unknown as Message : msg)
-                 )
-               };
-            });
-          }
-        },
+          const updatedMessage = payload.new;
+          if (!updatedMessage) return;
+          
+          queryClient.setQueryData(['messages', chatId], (oldData: InfiniteData<Message[]> | undefined) => {
+             if (!oldData) return oldData;
+             return {
+               ...oldData,
+               pages: oldData.pages.map((page) => 
+                 page.map((msg: Message) => msg.id === updatedMessage.id ? updatedMessage as unknown as Message : msg)
+               )
+             };
+          });
+        }
       )
       .subscribe(async (status: string) => {
+        console.log('📡 Channel subscription status:', status);
+        
         if (status === 'SUBSCRIBED') {
+          console.log('✅ Successfully subscribed to realtime channel');
           await channel.track({
             user_id: userId,
             online_at: new Date().toISOString(),
           });
+          console.log('👤 Tracked user presence:', { user_id: userId, online_at: new Date().toISOString() });
         }
+        
         if (status === 'CLOSED' || status === 'CHANNEL_ERROR' || status === 'TIMED_OUT') {
-           updateLastSeen();
+          console.log('❌ Channel disconnected:', status);
+          updateLastSeen();
+        }
+        
+        if (status === 'CHANNEL_ERROR') {
+          console.error('💥 Channel error occurred');
         }
       });
 

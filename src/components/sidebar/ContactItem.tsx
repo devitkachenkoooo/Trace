@@ -3,10 +3,12 @@
 import { Loader2, MessageSquarePlus, User as UserIcon } from 'lucide-react';
 import Image from 'next/image';
 import { useTransition } from 'react';
+import { useRouter } from 'next/navigation';
 import { getOrCreateChatAction } from '@/actions/chat-actions';
 import { formatRelativeTime } from '@/lib/date-utils';
 import type { User } from '@/types';
 import { cn } from '@/lib/utils';
+import { useSupabaseAuth } from '@/components/SupabaseAuthProvider';
 
 import { PresenceIndicator } from './PresenceIndicator';
 
@@ -24,14 +26,27 @@ export function ContactItem({
   onActionEnd 
 }: ContactItemProps) {
   const [isPending, startTransition] = useTransition();
+  const { user: currentUser } = useSupabaseAuth();
+  const router = useRouter();
 
   const handleStartChat = () => {
-    if (disabled || isPending) return;
+    if (disabled || isPending || !currentUser?.id) return;
     
     onActionStart?.(user.id);
     startTransition(async () => {
       try {
-        await getOrCreateChatAction(user.id);
+        const result = await getOrCreateChatAction(user.id);
+        
+        // Handle null result (unauthorized or error)
+        if (!result) {
+          // Redirect to login or show auth modal
+          router.push('/login');
+          return;
+        }
+        
+        // If successful, the redirect will happen in the server action
+      } catch (error) {
+        console.error('Unexpected error:', error);
       } finally {
         onActionEnd?.();
       }
@@ -80,11 +95,11 @@ export function ContactItem({
              showOffline={false}
              className="hidden" 
           /> 
-           {user.lastSeen && (
+           {user.last_seen && (
             <>
               <span className="text-[10px] text-gray-600">•</span>
               <p className="text-[10px] text-gray-500">
-                {formatRelativeTime(user.lastSeen)}
+                {formatRelativeTime(user.last_seen)}
               </p>
             </>
           )}

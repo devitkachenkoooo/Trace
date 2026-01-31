@@ -16,9 +16,9 @@ export const users = pgTable('user', {
   id: uuid('id').primaryKey(), 
   name: text('name'),
   email: text('email').notNull().unique(),
-  emailVerified: timestamp('emailVerified', { mode: 'date' }),
+  email_verified: timestamp('emailVerified', { mode: 'date' }),
   image: text('image'),
-  lastSeen: timestamp('last_seen', { mode: 'date' }).defaultNow(),
+  last_seen: timestamp('last_seen', { mode: 'date' }).defaultNow(),
 }, (table) => ({
   emailIdx: index('idx_user_email').on(table.email), // Для швидкого пошуку контактів
 }));
@@ -26,45 +26,45 @@ export const users = pgTable('user', {
 // --- ТАБЛИЦЯ ЧАТІВ ---
 export const chats = pgTable('chats', {
   id: uuid('id').primaryKey().defaultRandom(),
-  userId: uuid('user_id')
+  user_id: uuid('user_id')
     .notNull()
     .references(() => users.id, { onDelete: 'cascade' }),
-  recipientId: uuid('recipient_id')
+  recipient_id: uuid('recipient_id')
     .references(() => users.id, { onDelete: 'cascade' }),
   
-  userLastReadId: uuid('user_last_read_id')
+  user_last_read_id: uuid('user_last_read_id')
     .references((): AnyPgColumn => messages.id, { onDelete: 'set null' }),
-  recipientLastReadId: uuid('recipient_last_read_id')
+  recipient_last_read_id: uuid('recipient_last_read_id')
     .references((): AnyPgColumn => messages.id, { onDelete: 'set null' }),
 
   title: text('title').notNull().default('New Chat'),
-  createdAt: timestamp('created_at').notNull().defaultNow(),
+  created_at: timestamp('created_at').notNull().defaultNow(),
 }, (table) => ({
   // Для швидкого виведення списку чатів конкретного юзера
-  userRecipientIdx: index('idx_chats_users').on(table.userId, table.recipientId),
+  userRecipientIdx: index('idx_chats_users').on(table.user_id, table.recipient_id),
 }));
 
 // --- ТАБЛИЦЯ ПОВІДОМЛЕНЬ ---
 export const messages = pgTable('messages', {
   id: uuid('id').primaryKey().defaultRandom(),
-  chatId: uuid('chat_id')
+  chat_id: uuid('chat_id')
     .notNull()
     .references((): AnyPgColumn => chats.id, { onDelete: 'cascade' }),
-  senderId: uuid('sender_id')
+  sender_id: uuid('sender_id')
     .notNull()
     .references(() => users.id, { onDelete: 'cascade' }),
   content: text('content'),
   attachments: jsonb('attachments').$type<Attachment[]>().notNull().default([]),
   
-  replyToId: uuid('reply_to_id')
+  reply_to_id: uuid('reply_to_id')
     .references((): AnyPgColumn => messages.id, { onDelete: 'set null' }),
   
-  createdAt: timestamp('created_at').notNull().defaultNow(),
+  created_at: timestamp('created_at').notNull().defaultNow(),
 }, (table) => ({
   // КРИТИЧНО: Пришвидшує рендер чату та сортування за часом
-  chatCreatedIdx: index('idx_messages_chat_created').on(table.chatId, table.createdAt),
+  chatCreatedIdx: index('idx_messages_chat_created').on(table.chat_id, table.created_at),
   // Пришвидшує пошук повідомлень від конкретного відправника
-  senderIdx: index('idx_messages_sender').on(table.senderId),
+  senderIdx: index('idx_messages_sender').on(table.sender_id),
 }));
 
 // --- ВІДНОСИНИ (RELATIONS) ---
@@ -75,21 +75,21 @@ export const usersRelations = relations(users, ({ many }) => ({
 
 export const chatsRelations = relations(chats, ({ one, many }) => ({
   user: one(users, { 
-    fields: [chats.userId], 
+    fields: [chats.user_id], 
     references: [users.id], 
     relationName: 'creator' 
   }),
   recipient: one(users, {
-    fields: [chats.recipientId],
+    fields: [chats.recipient_id],
     references: [users.id],
     relationName: 'recipient',
   }),
-  userLastReadMessage: one(messages, {
-    fields: [chats.userLastReadId],
+  user_last_read_message: one(messages, {
+    fields: [chats.user_last_read_id],
     references: [messages.id],
   }),
-  recipientLastReadMessage: one(messages, {
-    fields: [chats.recipientLastReadId],
+  recipient_last_read_message: one(messages, {
+    fields: [chats.recipient_last_read_id],
     references: [messages.id],
   }),
   messages: many(messages),
@@ -97,15 +97,15 @@ export const chatsRelations = relations(chats, ({ one, many }) => ({
 
 export const messagesRelations = relations(messages, ({ one }) => ({
   chat: one(chats, { 
-    fields: [messages.chatId], 
+    fields: [messages.chat_id], 
     references: [chats.id] 
   }),
   sender: one(users, { 
-    fields: [messages.senderId], 
+    fields: [messages.sender_id], 
     references: [users.id] 
   }),
-  replyTo: one(messages, {
-    fields: [messages.replyToId],
+  reply_to: one(messages, {
+    fields: [messages.reply_to_id],
     references: [messages.id],
     relationName: 'replyingTo',
   }),
@@ -113,8 +113,8 @@ export const messagesRelations = relations(messages, ({ one }) => ({
 
 export const uploadAudit = pgTable('upload_audit', {
   id: uuid('id').primaryKey().defaultRandom(),
-  userId: uuid('user_id').references(() => users.id).notNull(),
-  createdAt: timestamp('created_at').defaultNow().notNull(),
+  user_id: uuid('user_id').references(() => users.id).notNull(),
+  created_at: timestamp('created_at').defaultNow().notNull(),
 }, (table) => ({
-  userTimeIdx: index('idx_upload_audit_user_time').on(table.userId, table.createdAt),
+  userTimeIdx: index('idx_upload_audit_user_time').on(table.user_id, table.created_at),
 }));

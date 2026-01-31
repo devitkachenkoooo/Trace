@@ -15,6 +15,13 @@
       "when": 1769687175587,
       "tag": "0001_pretty_whiplash",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1769880516904,
+      "tag": "0002_panoramic_vulcan",
+      "breakpoints": true
     }
   ]
 }

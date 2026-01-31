@@ -81,11 +81,14 @@ export default function ChatPage({ params }: { params: Promise<{ id: string }> }
     if (!chat || !user) return null;
     
     // Визначаємо, чий timestamp читання нас цікавить (співрозмовника)
-    const isUserCreator = chat.userId === user.id;
-    return isUserCreator 
-      ? chat.recipientLastRead?.createdAt 
-      : chat.userLastRead?.createdAt;
-  }, [chat, user]);
+    const isUserCreator = chat.user_id === user.id;
+    
+    // Знайдемо повідомлення, яке було прочитано
+    const readMessageId = isUserCreator ? chat.recipient_last_read_id : chat.user_last_read_id;
+    const readMessage = messages.find(m => m.id === readMessageId);
+    
+    return readMessage?.created_at || null;
+  }, [chat, user, messages]);
 
   if (isChatLoading || (isMessagesLoading && !messages.length)) {
     return (
@@ -129,7 +132,7 @@ export default function ChatPage({ params }: { params: Promise<{ id: string }> }
                 <span className="text-green-400">в мережі</span>
               ) : (
                 <span className="text-gray-500">
-                  {otherParticipant?.lastSeen ? `був(ла) ${formatRelativeTime(otherParticipant.lastSeen)}` : 'не в мережі'}
+                  {otherParticipant?.last_seen ? `був(ла) ${formatRelativeTime(otherParticipant.last_seen)}` : 'не в мережі'}
                 </span>
               )}
             </div>
@@ -167,15 +170,19 @@ export default function ChatPage({ params }: { params: Promise<{ id: string }> }
                   message={message}
                   currentUserId={user?.id}
                   isRead={
-  // 1. Повідомлення відправив Я
-  (message.senderId || message.sender_id) === user?.id &&
-  // 2. У нас Є дата прочитання від іншого користувача
-  !!recipientLastReadAt && 
-  // 3. Ця дата — це не порожній рядок і не помилка
-  getSafeTimestamp(recipientLastReadAt) !== 0 &&
-  // 4. ТІЛЬКИ ТОДІ порівнюємо
-  getSafeTimestamp(message.createdAt || message.created_at) <= getSafeTimestamp(recipientLastReadAt)
-}
+                    // 1. Повідомлення відправив Я
+                    message.sender_id === user?.id &&
+                    // 2. У нас є ID прочитаного повідомлення від іншого користувача
+                    !!chat?.recipient_last_read_id &&
+                    // 3. Знайдемо повідомлення в масиві повідомлень
+                    (() => {
+                      const readMessage = messages.find(m => m.id === chat.recipient_last_read_id);
+                      return readMessage ? 
+                        // 4. Порівнюємо час створення поточного повідомлення з часом прочитання
+                        new Date(message.created_at).getTime() <= new Date(readMessage.created_at).getTime() :
+                        false;
+                    })()
+                  }
                   onReply={handleReply}
                   onEdit={handleEdit}
                   onDelete={setMessageToDelete}

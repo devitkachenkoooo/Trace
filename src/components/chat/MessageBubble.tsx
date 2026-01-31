@@ -39,8 +39,8 @@ export const MessageBubble = memo(
     isHighlighed,
     otherParticipantName,
   }: MessageBubbleProps) => {
-    // Перевіряємо обидва варіанти написання ID для сумісності з БД та оптимістичним об'єктом
-    const senderId = message.senderId || message.sender_id;
+    // Use snake_case field names consistently (native database format)
+    const senderId = message.sender_id;
     const isMe = senderId === currentUserId;
 
     const mediaAttachments = message.attachments?.filter((a) => a.type === 'image' || a.type === 'video') || [];
@@ -73,18 +73,13 @@ export const MessageBubble = memo(
               >
                 {/* Reply Context */}
                 {(() => {
-                  const rId = message.replyToId || message.reply_to_id;
+                  const rId = message.reply_to_id;
                   if (!rId) return null;
 
-                  const reply = message.replyDetails || message.replyTo;
+                  const reply = message.reply_details || message.reply_to;
                   if (!reply) return null;
 
-                  const replySenderId =
-                    'senderId' in reply
-                      ? reply.senderId
-                      : 'sender_id' in reply
-                        ? (reply as { sender_id: string }).sender_id
-                        : undefined;
+                  const replySenderId = reply.sender_id;
 
                   const senderName =
                     reply.sender?.name || (replySenderId === currentUserId ? 'You' : otherParticipantName);
@@ -164,11 +159,7 @@ export const MessageBubble = memo(
                     isMe ? 'text-blue-100/50' : 'text-white/40',
                   )}
                 >
-                  <span className="text-[9px] font-medium">{formatMessageDate(message.createdAt)}</span>
-                  {message.updated_at &&
-                    new Date(message.updated_at).getTime() - new Date(message.createdAt).getTime() > 1000 && (
-                      <span className="text-[9px] italic opacity-70 ml-1">(відредаговано)</span>
-                    )}
+                  <span className="text-[9px] font-medium">{formatMessageDate(message.created_at)}</span>
 
                   {isMe && (
                     <div className="flex items-center ml-1">
@@ -232,7 +223,6 @@ export const MessageBubble = memo(
   (prev, next) => {
     // 1. Core content identity
     if (prev.message.id !== next.message.id) return false;
-    if (prev.message.updated_at !== next.message.updated_at) return false;
     if (prev.message.content !== next.message.content) return false;
     
     // 2. State & Context

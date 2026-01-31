@@ -1,7 +1,6 @@
 'use client';
 
 import { createBrowserClient } from '@supabase/ssr';
-import { camelizeKeys, decamelizeKeys } from 'humps';
 import { toast } from 'sonner';
 
 let client: any;
@@ -15,15 +14,7 @@ export function createClient() {
   client = createBrowserClient(supabaseUrl, supabaseAnonKey, {
     global: {
       fetch: async (url, options) => {
-        // 1. OUTBOUND: Convert camelCase from JS to snake_case for DB
-        if (options?.body && typeof options.body === 'string') {
-          try {
-            const body = JSON.parse(options.body);
-            options.body = JSON.stringify(decamelizeKeys(body));
-          } catch {
-            /* Keep as is if not JSON */
-          }
-        }
+        // Keep data in native format (snake_case)
 
         const response = await fetch(url, options);
 
@@ -65,7 +56,7 @@ export function createClient() {
         }
 
         // --- SUCCESSFUL RESPONSE HANDLING ---
-        // If status between 200-299, return immediately if no body or not JSON
+        // Return response in native snake_case format
         if (response.status === 204 || response.status === 205) {
           return response;
         }
@@ -76,14 +67,14 @@ export function createClient() {
             const text = await response.clone().text();
             if (!text) return response;
             
-            const json = JSON.parse(text);
-            return new Response(JSON.stringify(camelizeKeys(json)), {
+            // Return JSON as-is in snake_case format
+            return new Response(text, {
               status: response.status,
               statusText: response.statusText,
               headers: response.headers,
             });
           } catch (err) {
-            console.error('[Supabase Interceptor] Failed to parse success JSON:', err);
+            console.error('[Supabase Client] Failed to parse JSON:', err);
             return response;
           }
         }
